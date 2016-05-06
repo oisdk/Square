@@ -1,0 +1,36 @@
+name:                Square
+version:             0.1.0.0
+synopsis:            Okasakis' Square matrices with nested types
+description:         Please see README.md
+homepage:            https://github.com/oisdk/Square#readme
+license:             MIT
+license-file:        LICENSE
+author:              Donnacha Oisin Kidney
+category:            Data
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Data.Square
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5
+                     , lens
+                     , QuickCheck
+                     , prelude-extras
+  other-extensions:    DeriveFoldable
+                     , DeriveFunctor
+                     , DeriveTraversable
+                     , LambdaCase
+                     , RankNTypes
+                     , TypeFamilies
+  ghc-options:         -Wall
+  default-language:    Haskell2010
+
+Test-Suite square-tests
+  Type:                exitcode-stdio-1.0
+  main-is:             test/square-tests.hs
+  build-depends:       base
+                     , QuickCheck
+                     , Square
+  default-language:    Haskell2010

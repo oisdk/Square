@@ -1,0 +1,76 @@
+
+./Setup.hs,15
+main main1,2
+
+./src/Data/Square.hs,1526
+module Data.SquareData.Square9,10
+import import19,20
+newtype Pair Pair23,24
+newtype Pair v w a = P P23,24
+data Square_ Square_26,27
+    Zero Zero27,28
+  | Even Even28,29
+  | Odd Odd29,30
+mkP mkP32,33
+mkP mkP33,34
+create create35,36
+create create36,37
+create_ create_38,39
+create_ create_46,47
+leE leE54,55
+leE leE55,56
+leI leI57,58
+leI leI58,59
+leP leP60,61
+leP leP63,64
+type FlippedLens' FlippedLens'67,68
+type FlippedLens' s s67,68
+ix_ ix_69,70
+ix_ ix_70,71
+instance instance76,77
+data Square Square89,90
+  Square Square90,91
+  Square { _squareSize _squareSize90,91
+         , _square _square91,92
+class Eq1 f => EqR1 EqR194,95
+  eqr1 :: (Eq a, EqR1 g) => f f95,96
+  eqr1 eqr195,96
+newtype EmptyF EmptyF105,106
+newtype EmptyF a = EmptyF EmptyF105,106
+type instance instance131,132
+type instance Index Index131,132
+type instance instance132,133
+type instance IxValue IxValue132,133
+squareSize squareSize134,135
+squareSize squareSize135,136
+newtype MaybeState MaybeState145,146
+  MaybeState MaybeState146,147
+  MaybeState { runMaybeState runMaybeState146,147
+newtype RecAccu RecAccu153,154
+  RecAccu RecAccu154,155
+  RecAccu { runRecAccu runRecAccu154,155
+mapAccumL mapAccumL156,157
+mapAccumL mapAccumL157,158
+zipInto zipInto159,160
+zipInto zipInto162,163
+replace replace166,167
+replace replace167,168
+fromList fromList169,170
+fromList fromList170,171
+unsafeIndex unsafeIndex172,173
+unsafeIndex unsafeIndex173,174
+
+./test/square-tests.hs,406
+module Main Main2,3
+prop_correctSize prop_correctSize11,12
+prop_correctSize prop_correctSize12,13
+prop_listIso prop_listIso14,15
+prop_listIso prop_listIso15,16
+prop_Indexing prop_Indexing21,22
+prop_Indexing prop_Indexing22,23
+quickCheckExit quickCheckExit25,26
+quickCheckExit quickCheckExit26,27
+failWith failWith30,31
+failWith failWith31,32
+runTests runTests34,35
+main main36,37
