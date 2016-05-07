@@ -2,63 +2,63 @@
 ./Setup.hs,15
 main main1,2
 
-./src/Data/Square.hs,1526
-module Data.SquareData.Square9,10
-import import19,20
-newtype Pair Pair23,24
-newtype Pair v w a = P P23,24
-data Square_ Square_26,27
-    Zero Zero27,28
-  | Even Even28,29
-  | Odd Odd29,30
-mkP mkP32,33
-mkP mkP33,34
-create create35,36
-create create36,37
-create_ create_38,39
-create_ create_46,47
-leE leE54,55
-leE leE55,56
-leI leI57,58
-leI leI58,59
-leP leP60,61
-leP leP63,64
-type FlippedLens' FlippedLens'67,68
-type FlippedLens' s s67,68
-ix_ ix_69,70
-ix_ ix_70,71
-instance instance76,77
-data Square Square89,90
-  Square Square90,91
-  Square { _squareSize _squareSize90,91
-         , _square _square91,92
-class Eq1 f => EqR1 EqR194,95
-  eqr1 :: (Eq a, EqR1 g) => f f95,96
-  eqr1 eqr195,96
-newtype EmptyF EmptyF105,106
-newtype EmptyF a = EmptyF EmptyF105,106
-type instance instance131,132
-type instance Index Index131,132
-type instance instance132,133
-type instance IxValue IxValue132,133
-squareSize squareSize134,135
-squareSize squareSize135,136
-newtype MaybeState MaybeState145,146
-  MaybeState MaybeState146,147
-  MaybeState { runMaybeState runMaybeState146,147
-newtype RecAccu RecAccu153,154
-  RecAccu RecAccu154,155
-  RecAccu { runRecAccu runRecAccu154,155
-mapAccumL mapAccumL156,157
-mapAccumL mapAccumL157,158
-zipInto zipInto159,160
-zipInto zipInto162,163
-replace replace166,167
-replace replace167,168
-fromList fromList169,170
-fromList fromList170,171
-unsafeIndex unsafeIndex172,173
-unsafeIndex unsafeIndex173,174
+./src/Data/Square.hs,1547
+module Data.SquareData.Square7,8
+import import17,18
+data Square_ Square_39,40
+    Zero Zero40,41
+  | Even Even41,42
+  | Odd Odd42,43
+newtype None None53,54
+newtype None a = None None53,54
+data Pair Pair56,57
+data Pair v w a = Pair Pair56,57
+mkP mkP59,60
+mkP mkP60,61
+create create65,66
+create create66,67
+create_ create_87,88
+create_ create_95,96
+leE leE109,110
+leE leE110,111
+leI leI114,115
+leI leI115,116
+leP leP118,119
+leP leP121,122
+type FlippedLens' FlippedLens'125,126
+type FlippedLens' s s125,126
+ix_ ix_127,128
+ix_ ix_128,129
+instance instance134,135
+data Square Square148,149
+  Square Square149,150
+  Square { _squareSize _squareSize149,150
+         , _square _square150,151
+class Eq1 f => EqR1 EqR1153,154
+  eqr1 :: (Eq a, EqR1 g) => f f154,155
+  eqr1 eqr1154,155
+type instance instance187,188
+type instance Index Index187,188
+type instance instance188,189
+type instance IxValue IxValue188,189
+squareSize squareSize190,191
+squareSize squareSize191,192
+newtype MaybeState MaybeState202,203
+  MaybeState MaybeState203,204
+  MaybeState { runMaybeState runMaybeState203,204
+newtype RecAccu RecAccu211,212
+  RecAccu RecAccu212,213
+  RecAccu { runRecAccu runRecAccu212,213
+mapAccumM mapAccumM214,215
+mapAccumM mapAccumM217,218
+zipInto zipInto220,221
+zipInto zipInto223,224
+replace replace227,228
+replace replace228,229
+fromList fromList230,231
+fromList fromList231,232
+unsafeIndex unsafeIndex233,234
+unsafeIndex unsafeIndex234,235
 
 ./test/square-tests.hs,406
 module Main Main2,3
