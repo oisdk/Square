@@ -24,7 +24,8 @@ import           Test.QuickCheck
 -- > Square_ None Identity a
 --
 -- It is unable to be a non-square. It is adapted from
--- <http://www.usma.edu/eecs/SiteAssets/SitePages/Faculty%20Publication%20Documents/Okasaki/icfp99square.pdf Okasaki's> square matrices:
+-- <http://www.usma.edu/eecs/SiteAssets/SitePages/Faculty%20Publication%20Documents/Okasaki/icfp99square.pdf Okasaki's>
+-- square matrices:
 --
 -- > data Square_ v w a =
 -- >    Zero (v (v a))
@@ -148,7 +149,7 @@ instance (Traversable v, Traversable w)
 
 data Square a =
   Square { _squareSize :: Int
-         , _square :: Square_ None Identity a
+         , _square     :: Square_ None Identity a
          } deriving (Functor, Foldable, Traversable)
 
 class Eq1 f => EqR1 f where

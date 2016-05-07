@@ -5,60 +5,60 @@ main main1,2
 ./src/Data/Square.hs,1547
 module Data.SquareData.Square7,8
 import import17,18
-data Square_ Square_39,40
-    Zero Zero40,41
-  | Even Even41,42
-  | Odd Odd42,43
-newtype None None53,54
-newtype None a = None None53,54
-data Pair Pair56,57
-data Pair v w a = Pair Pair56,57
-mkP mkP59,60
+data Square_ Square_40,41
+    Zero Zero41,42
+  | Even Even42,43
+  | Odd Odd43,44
+newtype None None54,55
+newtype None a = None None54,55
+data Pair Pair57,58
+data Pair v w a = Pair Pair57,58
 mkP mkP60,61
-create create65,66
+mkP mkP61,62
 create create66,67
-create_ create_87,88
-create_ create_95,96
-leE leE109,110
+create create67,68
+create_ create_88,89
+create_ create_96,97
 leE leE110,111
-leI leI114,115
+leE leE111,112
 leI leI115,116
-leP leP118,119
-leP leP121,122
-type FlippedLens' FlippedLens'125,126
-type FlippedLens' s s125,126
-ix_ ix_127,128
+leI leI116,117
+leP leP119,120
+leP leP122,123
+type FlippedLens' FlippedLens'126,127
+type FlippedLens' s s126,127
 ix_ ix_128,129
-instance instance134,135
-data Square Square148,149
-  Square Square149,150
-  Square { _squareSize _squareSize149,150
-         , _square _square150,151
-class Eq1 f => EqR1 EqR1153,154
-  eqr1 :: (Eq a, EqR1 g) => f f154,155
-  eqr1 eqr1154,155
-type instance instance187,188
-type instance Index Index187,188
+ix_ ix_129,130
+instance instance135,136
+data Square Square149,150
+  Square Square150,151
+  Square { _squareSize _squareSize150,151
+         , _square _square151,152
+class Eq1 f => EqR1 EqR1154,155
+  eqr1 :: (Eq a, EqR1 g) => f f155,156
+  eqr1 eqr1155,156
 type instance instance188,189
-type instance IxValue IxValue188,189
-squareSize squareSize190,191
+type instance Index Index188,189
+type instance instance189,190
+type instance IxValue IxValue189,190
 squareSize squareSize191,192
-newtype MaybeState MaybeState202,203
-  MaybeState MaybeState203,204
-  MaybeState { runMaybeState runMaybeState203,204
-newtype RecAccu RecAccu211,212
-  RecAccu RecAccu212,213
-  RecAccu { runRecAccu runRecAccu212,213
-mapAccumM mapAccumM214,215
-mapAccumM mapAccumM217,218
-zipInto zipInto220,221
-zipInto zipInto223,224
-replace replace227,228
+squareSize squareSize192,193
+newtype MaybeState MaybeState203,204
+  MaybeState MaybeState204,205
+  MaybeState { runMaybeState runMaybeState204,205
+newtype RecAccu RecAccu212,213
+  RecAccu RecAccu213,214
+  RecAccu { runRecAccu runRecAccu213,214
+mapAccumM mapAccumM215,216
+mapAccumM mapAccumM218,219
+zipInto zipInto221,222
+zipInto zipInto224,225
 replace replace228,229
-fromList fromList230,231
+replace replace229,230
 fromList fromList231,232
-unsafeIndex unsafeIndex233,234
+fromList fromList232,233
 unsafeIndex unsafeIndex234,235
+unsafeIndex unsafeIndex235,236
 
 ./test/square-tests.hs,406
 module Main Main2,3
