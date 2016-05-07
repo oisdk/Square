@@ -257,33 +257,20 @@ instance Arbitrary a => Arbitrary (Square a) where
     mapMaybe (`fromList` foldr (:) [] s) (shrink n)
 
 -- fromList
-newtype MaybeState s a =
-  MaybeState { runMaybeState :: s -> Maybe (s, a)
-             } deriving (Functor)
+newtype Source s a =
+  Source { runSource :: [s] -> Maybe (a, [s])
+         } deriving (Functor)
 
-instance Applicative (MaybeState s) where
-  pure x = MaybeState (\s -> Just (s, x))
-  MaybeState f <*> MaybeState x =
-    MaybeState ((\(s,g) -> (fmap.fmap) g (x s)) <=< f)
+get :: Source s s
+get = Source uncons
 
-newtype RecAccu a b =
-  RecAccu { runRecAccu :: a -> Maybe (RecAccu a b, b) }
+instance Applicative (Source s) where
+  pure x = Source (\s -> Just (x, s))
+  Source f <*> Source x =
+    Source ((\(g,s) -> mapped._1 %~ g $ x s) <=< f)
 
-mapAccumM :: Traversable t
-          => (a -> b -> Maybe (a, c))
-          -> t b -> a -> Maybe (t c)
-mapAccumM f t s =
-  snd <$> runMaybeState (traverse (MaybeState . flip f) t) s
+evalSource :: Source s a -> [s] -> Maybe a
+evalSource s = fmap fst . runSource s
 
-zipInto :: (Traversable t, Foldable f)
-        => (a -> b -> c) -> t a -> f b
-        -> Maybe (t c)
-zipInto f xs = mapAccumM runRecAccu xs . RecAccu . foldr h i where
-  i _ = Nothing
-  h e2 a e1 = Just (RecAccu a, f e1 e2)
-
-replace :: (Traversable t, Foldable f) => t a -> f b -> Maybe (t b)
-replace = zipInto (\_ x -> x)
-
-fromList :: Foldable f => Int -> f a -> Maybe (Square a)
-fromList n = replace (create n ())
+fromList :: Int -> [a] -> Maybe (Square a)
+fromList n = evalSource $ traverse (const get) (create n ())
