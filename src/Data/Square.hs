@@ -17,6 +17,7 @@ module Data.Square
 import           Control.Lens
 import           Control.Monad   ((<=<))
 import           Data.Maybe      (mapMaybe)
+import           Data.Monoid     ((<>))
 import           Prelude.Extras
 import           Test.QuickCheck
 
@@ -183,8 +184,7 @@ instance (Eq1 v, Eq1 w) => Eq1 (Pair v w) where
 instance Ord1 None where compare1 _ _ = EQ
 
 instance (Ord1 v, Ord1 w) => Ord1 (Pair v w) where
-  compare1 (Pair a b) (Pair c d) =
-    mappend (compare1 a c) (compare1 b d)
+  compare1 (Pair a b) (Pair c d) = compare1 a c <> compare1 b d
 
 -- EqR1
 class Eq1 f => EqR1 f where
@@ -208,7 +208,7 @@ instance OrdR1 Identity where
   cmpR1 (Identity a) (Identity b) = compare1 a b
 
 instance (OrdR1 v, OrdR1 w) => OrdR1 (Pair v w) where
-  cmpR1 (Pair a b) (Pair c d) = mappend (cmpR1 a c) (cmpR1 b d)
+  cmpR1 (Pair a b) (Pair c d) = cmpR1 a c <> cmpR1 b d
 
 -- Eq instances for 'Square'
 instance (EqR1 v, EqR1 w) => Eq1 (Square_ v w) where
@@ -232,12 +232,10 @@ instance (OrdR1 v, OrdR1 w) => Ord1 (Square_ v w) where
   compare1  _          _         = undefined
 
 instance Ord a => Ord (Square a) where
-  compare (Square n v) (Square m w) =
-    mappend (compare n m) (compare1 v w)
+  compare (Square n v) (Square m w) = compare n m <> compare1 v w
 
 instance Ord1 Square where
-  compare1 (Square n v) (Square m w) =
-    mappend (compare n m) (compare1 v w)
+  compare1 (Square n v) (Square m w) = compare n m <> compare1 v w
 
  -- Show
 instance Show a => Show (Square a) where
@@ -255,7 +253,8 @@ instance Arbitrary a => Arbitrary (Square a) where
       wobble n m LT = n-m
       wobble n _ EQ = n
       wobble n m GT = n+m
-  shrink s@(Square n _) = mapMaybe (`fromList` foldr (:) [] s) (shrink n)
+  shrink s@(Square n _) =
+    mapMaybe (`fromList` foldr (:) [] s) (shrink n)
 
 -- fromList
 newtype MaybeState s a =
@@ -288,4 +287,3 @@ replace = zipInto (\_ x -> x)
 
 fromList :: Foldable f => Int -> f a -> Maybe (Square a)
 fromList n = replace (create n ())
-
