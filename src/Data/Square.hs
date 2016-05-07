@@ -16,6 +16,7 @@ module Data.Square
 
 import           Control.Lens
 import           Control.Monad   ((<=<))
+import           Data.Maybe      (mapMaybe)
 import           Prelude.Extras
 import           Test.QuickCheck
 
@@ -37,6 +38,13 @@ import           Test.QuickCheck
 -- position. This could be accomplished without the field, but this
 -- way allows sharing of work across repeated access to different
 -- indices.
+data Square a =
+  Square { _squareSize :: Int
+         , _square     :: Square_ None Identity a
+         } deriving (Functor, Foldable, Traversable)
+
+squareSize :: Getter (Square a) Int
+squareSize = to _squareSize
 
 data Square_ v w a =
     Zero (forall b. Int -> Lens' (v b) b) (v (v a))
@@ -124,6 +132,7 @@ leP lev lew nv i f (Pair v w)
   | i < nv    = flip Pair w <$> lev i f v
   | otherwise = Pair v <$> lew (i-nv) f w
 
+-- Indexing
 type FlippedLens' s a = forall f. Functor f => s -> (a -> f a) -> f s
 
 ix_ :: (Int, Int) -> Lens' (Square_ v w a) a
@@ -133,6 +142,21 @@ ix_ (i,j) = flip ix' where
   ix' (Even      m) = fmap Even . ix' m
   ix' (Odd       m) = fmap Odd  . ix' m
 
+instance Ixed (Square a) where
+  ix (i,j) f (Square n m)
+    | i >= n    = pure (Square n m)
+    | j >= n    = pure (Square n m)
+    | otherwise = Square n <$> ix_ (i,j) f m
+
+type instance Index (Square a) = (Int, Int)
+type instance IxValue (Square a) = a
+
+unsafeIndex :: Square a -> (Int, Int) -> a
+unsafeIndex (Square _ s) i = s ^. ix_ i
+
+-- Instances
+
+-- Foldable and Traversable
 instance (Foldable v, Foldable w) => Foldable (Square_ v w) where
   foldMap f (Zero _ v) = (foldMap.foldMap) f v
   foldMap f (Even   v) = foldMap f v
@@ -147,29 +171,48 @@ instance (Traversable v, Traversable w)
     traverse f (Even   v) = Even   <$> traverse            f v
     traverse f (Odd    v) = Odd    <$> traverse            f v
 
-data Square a =
-  Square { _squareSize :: Int
-         , _square     :: Square_ None Identity a
-         } deriving (Functor, Foldable, Traversable)
+-- Eq and Ord
 
-class Eq1 f => EqR1 f where
-  eqr1 :: (Eq a, EqR1 g) => f (g a) -> f (g a) -> Bool
-
-instance EqR1 None where eqr1 _ _ = True
-
-instance (EqR1 v, EqR1 w) => EqR1 (Pair v w) where
-  eqr1 (Pair a b) (Pair c d) = eqr1 a c && eqr1 b d
+-- Eq1
+instance Eq1 None where _ ==# _ = True
 
 instance (Eq1 v, Eq1 w) => Eq1 (Pair v w) where
   Pair a b ==# Pair c d = a ==# c && b ==# d
 
-instance Eq1 None where _ ==# _ = True
+-- Ord1
+instance Ord1 None where compare1 _ _ = EQ
+
+instance (Ord1 v, Ord1 w) => Ord1 (Pair v w) where
+  compare1 (Pair a b) (Pair c d) =
+    mappend (compare1 a c) (compare1 b d)
+
+-- EqR1
+class Eq1 f => EqR1 f where
+  eqR1 :: (Eq a, EqR1 g) => f (g a) -> f (g a) -> Bool
+
+instance EqR1 None where eqR1 _ _ = True
 
 instance EqR1 Identity where
-  eqr1 (Identity a) (Identity b) = a ==# b
+  eqR1 (Identity a) (Identity b) = a ==# b
 
+instance (EqR1 v, EqR1 w) => EqR1 (Pair v w) where
+  eqR1 (Pair a b) (Pair c d) = eqR1 a c && eqR1 b d
+
+-- OrdR1
+class (Ord1 f, EqR1 f) => OrdR1 f where
+  cmpR1 :: (Ord a, OrdR1 g) => f (g a) -> f (g a) -> Ordering
+
+instance OrdR1 None where cmpR1 _ _ = EQ
+
+instance OrdR1 Identity where
+  cmpR1 (Identity a) (Identity b) = compare1 a b
+
+instance (OrdR1 v, OrdR1 w) => OrdR1 (Pair v w) where
+  cmpR1 (Pair a b) (Pair c d) = mappend (cmpR1 a c) (cmpR1 b d)
+
+-- Eq instances for 'Square'
 instance (EqR1 v, EqR1 w) => Eq1 (Square_ v w) where
-  Zero _ x ==# Zero _ y = eqr1 x y
+  Zero _ x ==# Zero _ y = eqR1 x y
   Odd    x ==# Odd    y = x ==# y
   Even   x ==# Even   y = x ==# y
   _        ==# _        = False
@@ -180,27 +223,41 @@ instance Eq a => Eq (Square a) where
 instance Eq1 Square where
   Square n v ==# Square m w = n == m && v ==# w
 
-instance Ixed (Square a) where
-  ix (i,j) f (Square n m)
-    | i >= n    = pure (Square n m)
-    | j >= n    = pure (Square n m)
-    | otherwise = Square n <$> ix_ (i,j) f m
+-- Ord instances for 'Square'
+instance (OrdR1 v, OrdR1 w) => Ord1 (Square_ v w) where
+  compare1 (Zero _ x) (Zero _ y) = cmpR1 x y
+  compare1 (Odd    x) (Odd    y) = compare1 x y
+  compare1 (Even   x) (Even   y) = compare1 x y
+  -- Differently sized squares are compared on their sizes
+  compare1  _          _         = undefined
 
-type instance Index (Square a) = (Int, Int)
-type instance IxValue (Square a) = a
+instance Ord a => Ord (Square a) where
+  compare (Square n v) (Square m w) =
+    mappend (compare n m) (compare1 v w)
 
-squareSize :: Getter (Square a) Int
-squareSize = to _squareSize
+instance Ord1 Square where
+  compare1 (Square n v) (Square m w) =
+    mappend (compare n m) (compare1 v w)
 
+ -- Show
 instance Show a => Show (Square a) where
   showsPrec _ (Square n m) =
     flip (foldr (\e a -> e ('\n':a)))
       [ showList [ m ^. ix_ (i,j) | j <- idxs] | i <- idxs]
         where idxs = [0..(n-1)]
 
+-- Arbitrary
 instance Arbitrary a => Arbitrary (Square a) where
-  arbitrary = sized (traverse (const arbitrary) . flip create ())
+  arbitrary = sized $ \n -> do
+    d <- wobble n <$> choose (0,n `div` 4) <*> arbitrary
+    traverse (const arbitrary) (create d ())
+    where
+      wobble n m LT = n-m
+      wobble n _ EQ = n
+      wobble n m GT = n+m
+  shrink s@(Square n _) = mapMaybe (`fromList` foldr (:) [] s) (shrink n)
 
+-- fromList
 newtype MaybeState s a =
   MaybeState { runMaybeState :: s -> Maybe (s, a)
              } deriving (Functor)
@@ -232,5 +289,3 @@ replace = zipInto (\_ x -> x)
 fromList :: Foldable f => Int -> f a -> Maybe (Square a)
 fromList n = replace (create n ())
 
-unsafeIndex :: Square a -> (Int, Int) -> a
-unsafeIndex (Square _ s) i = s ^. ix_ i
