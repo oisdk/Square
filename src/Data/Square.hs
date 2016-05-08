@@ -91,28 +91,28 @@ mkP :: Applicative f => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Pair v
 mkP mkv mkw x = Pair <$> mkv x <*> mkw x
 
 create ::Applicative f => Int -> f a -> f (Square a)
-create n x =
-  Square n <$> create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) x n
+create n =
+  fmap (Square n) . create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) n
 
 create_ :: Applicative f
-         => (forall b. Int -> Lens' (v b) b)
-         -> (forall b. Int -> Lens' (w b) b)
-         -> Int -> Int
-         -> (forall b. f b -> f (v b))
-         -> (forall b. f b -> f (w b))
-         -> f a
-         -> Int
-         -> f (Square_ v w a)
-create_ lev _ _ _ mkv _ x 0 = Zero lev <$> mkv (mkv x)
-create_ lev lew vsz wsz mkv mkw x n
-  | even n = Even <$>
+        => (forall b. Int -> Lens' (v b) b)
+        -> (forall b. Int -> Lens' (w b) b)
+        -> Int -> Int
+        -> (forall b. f b -> f (v b))
+        -> (forall b. f b -> f (w b))
+        -> Int
+        -> f a
+        -> f (Square_ v w a)
+create_ lev _ _ _ mkv _ 0 = fmap (Zero lev) . mkv . mkv
+create_ lev lew vsz wsz mkv mkw n
+  | even n = fmap Even .
     create_
       lev (leP lew lew wsz) vsz (wsz+wsz)
-      mkv (mkP mkw mkw) x (n `div` 2)
-  | otherwise = Odd <$>
+      mkv (mkP mkw mkw) (n `div` 2)
+  | otherwise = fmap Odd .
     create_
       (leP lev lew vsz) (leP lew lew wsz) (vsz+wsz) (wsz+wsz)
-      (mkP mkv mkw) (mkP mkw mkw) x (n `div` 2)
+      (mkP mkv mkw) (mkP mkw mkw) (n `div` 2)
 -- The indexing 'Lens' for 'None'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the
 -- 'Square' indexing functions.
@@ -265,8 +265,8 @@ newtype Source s a =
   Source { runSource :: [s] -> Maybe (a, [s])
          } deriving (Functor)
 
-getSource :: Source s s
-getSource = Source uncons
+pop :: Source s s
+pop = Source uncons
 
 instance Applicative (Source s) where
   pure x = Source (\s -> Just (x, s))
@@ -277,4 +277,4 @@ evalSource :: Source s a -> [s] -> Maybe a
 evalSource s = fmap fst . runSource s
 
 fromList :: Int -> [a] -> Maybe (Square a)
-fromList n = evalSource (create n getSource)
+fromList n = evalSource (create n pop)
