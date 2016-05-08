@@ -2,10 +2,11 @@
 
 module Main where
 
+import           Control.Applicative
 import           Control.Monad
-import Control.Applicative
 import           Data.Functor
 import           Data.Ord
+import           Data.Serialize           (Serialize, decode, encode)
 import           Data.Square
 import           System.Exit
 import           Test.QuickCheck
@@ -41,11 +42,20 @@ prop_Ordering s t = classify (c==EQ) "Same size squares" . classify (c/=EQ) "Dif
       c = comparing _squareSize s t
       r = compare s t
 
+prop_Serialize :: Square Int -> P.Result
+prop_Serialize = checkSerialize
+
 sameResult :: Eq a => (b -> a) -> (b -> a) -> b -> Bool
 sameResult = liftA2 (==)
 
 sameResult2 :: Eq a => (c -> b -> a) -> (c -> b -> a) -> c -> b -> Bool
 sameResult2 = liftA2 sameResult
+
+isId :: Eq a => (a -> a) -> a -> Bool
+isId = sameResult id
+
+checkSerialize :: (Eq a, Serialize a) => a -> P.Result
+checkSerialize a = either failWith (\x -> if x == a then P.succeeded else P.failed) . decode . encode $ a
 
 quickCheckExit :: Testable prop => prop -> IO Result
 quickCheckExit = resultExit <=< quickCheckResult where

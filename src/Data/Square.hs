@@ -15,9 +15,11 @@ module Data.Square
   ) where
 
 import           Control.Lens
-import           Control.Monad   ((<=<))
-import           Data.Maybe      (mapMaybe)
-import           Data.Monoid     ((<>))
+import           Control.Monad    ((<=<))
+import           Data.Maybe       (mapMaybe)
+import           Data.Monoid      ((<>))
+import           Data.Serialize
+import           Data.Foldable (traverse_)
 import           Prelude.Extras
 import           Test.QuickCheck
 
@@ -67,16 +69,6 @@ newtype None a = None ()
 data Pair v w a = Pair (v a) (w a)
   deriving (Functor, Foldable, Traversable, Eq, Ord)
 
-mkP :: (a -> v a) -> (a -> w a) -> a -> Pair v w a
-mkP mkv mkw x = Pair (mkv x) (mkw x)
-
--- | @'create' n x@ will create a square, of size @n*n@, containing
--- the repeated element 'x'.
-
-create :: Int -> a -> Square a
-create n x =
-  Square n (create_ leE leI 0 1 (const $ None ()) Identity x n)
-
 -- | The 'create_' function is really two functions combined into one:
 -- a normal creation function, with the signature:
 --
@@ -95,25 +87,32 @@ create n x =
 -- building the indexing function allows for sharing between access
 -- of different indices.
 
-create_ :: (forall b. Int -> Lens' (v b) b)
-        -> (forall b. Int -> Lens' (w b) b)
-        -> Int -> Int
-        -> (forall b. b -> v b)
-        -> (forall b. b -> w b)
-        -> a
-        -> Int
-        -> Square_ v w a
-create_ lev _ _ _ mkv _ x 0 = Zero lev (mkv (mkv x))
-create_ lev lew vsz wsz mkv mkw x n
-  | even n =
-    Even (create_
-          lev (leP lew lew wsz) vsz (wsz+wsz)
-          mkv (mkP mkw mkw) x (n `div` 2))
-  | otherwise =
-    Odd  (create_
-          (leP lev lew vsz) (leP lew lew wsz) (vsz+wsz) (wsz+wsz)
-          (mkP mkv mkw) (mkP mkw mkw) x (n `div` 2))
+mkP :: Applicative f => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Pair v w a)
+mkP mkv mkw x = Pair <$> mkv x <*> mkw x
 
+create ::Applicative f => Int -> f a -> f (Square a)
+create n x =
+  Square n <$> create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) x n
+
+create_ :: Applicative f
+         => (forall b. Int -> Lens' (v b) b)
+         -> (forall b. Int -> Lens' (w b) b)
+         -> Int -> Int
+         -> (forall b. f b -> f (v b))
+         -> (forall b. f b -> f (w b))
+         -> f a
+         -> Int
+         -> f (Square_ v w a)
+create_ lev _ _ _ mkv _ x 0 = Zero lev <$> mkv (mkv x)
+create_ lev lew vsz wsz mkv mkw x n
+  | even n = Even <$>
+    create_
+      lev (leP lew lew wsz) vsz (wsz+wsz)
+      mkv (mkP mkw mkw) x (n `div` 2)
+  | otherwise = Odd <$>
+    create_
+      (leP lev lew vsz) (leP lew lew wsz) (vsz+wsz) (wsz+wsz)
+      (mkP mkv mkw) (mkP mkw mkw) x (n `div` 2)
 -- The indexing 'Lens' for 'None'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the
 -- 'Square' indexing functions.
@@ -248,7 +247,7 @@ instance Show a => Show (Square a) where
 instance Arbitrary a => Arbitrary (Square a) where
   arbitrary = sized $ \n -> do
     d <- wobble n <$> choose (0,n `div` 4) <*> arbitrary
-    traverse (const arbitrary) (create d ())
+    create d arbitrary
     where
       wobble n m LT = n-m
       wobble n _ EQ = n
@@ -256,13 +255,18 @@ instance Arbitrary a => Arbitrary (Square a) where
   shrink s@(Square n _) =
     mapMaybe (`fromList` foldr (:) [] s) (shrink n)
 
+-- Serialize
+instance Serialize a => Serialize (Square a) where
+  put s@(Square n _) = put n *> traverse_ put s
+  get = create <$> get >>= ($get)
+
 -- fromList
 newtype Source s a =
   Source { runSource :: [s] -> Maybe (a, [s])
          } deriving (Functor)
 
-get :: Source s s
-get = Source uncons
+getSource :: Source s s
+getSource = Source uncons
 
 instance Applicative (Source s) where
   pure x = Source (\s -> Just (x, s))
@@ -273,4 +277,4 @@ evalSource :: Source s a -> [s] -> Maybe a
 evalSource s = fmap fst . runSource s
 
 fromList :: Int -> [a] -> Maybe (Square a)
-fromList n = evalSource $ traverse (const get) (create n ())
+fromList n = evalSource (create n getSource)
