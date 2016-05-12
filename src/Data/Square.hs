@@ -44,7 +44,12 @@ import           Test.QuickCheck
 data Square a =
   Square { _squareSize :: Int
          , _square     :: Square_ None Identity a
-         } deriving (Functor, Foldable, Traversable)
+         } deriving (Functor, Traversable)
+
+instance Foldable Square where
+  foldr f i (Square _ s) = foldr f i s
+  foldMap f (Square _ s) = foldMap f s
+  length    (Square n _) = n * n
 
 squareSize :: Getter (Square a) Int
 squareSize = to _squareSize
