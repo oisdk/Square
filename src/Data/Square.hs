@@ -7,21 +7,15 @@
 
 module Data.Square
   ( Square
-  , squareSize
-  , _squareSize
   , create
+  , alterF
   , fromList
-  , unsafeIndex
   ) where
 
-import           Control.Lens
-import           Control.Monad    ((<=<))
-import           Data.Maybe       (mapMaybe)
-import           Data.Monoid      ((<>))
-import           Data.Serialize
-import           Data.Foldable (traverse_)
-import           Prelude.Extras
-import           Test.QuickCheck
+import           Data.Functor.Classes
+import           Data.Functor.Identity
+import           Data.List
+import           Data.Monoid           ((<>))
 
 -- | This type represents a square matrix. In the form:
 --
@@ -51,8 +45,7 @@ instance Foldable Square where
   foldMap f (Square _ s) = foldMap f s
   length    (Square n _) = n * n
 
-squareSize :: Getter (Square a) Int
-squareSize = to _squareSize
+type Lens' s a = forall f. Functor f => (a -> f a) -> s -> f s
 
 data Square_ v w a =
     Zero (forall b. Int -> Lens' (v b) b) (v (v a))
@@ -92,12 +85,15 @@ data Pair v w a = Pair (v a) (w a)
 -- building the indexing function allows for sharing between access
 -- of different indices.
 
-mkP :: Applicative f => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Pair v w a)
+mkP
+  :: Applicative f
+  => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Pair v w a)
 mkP mkv mkw x = Pair <$> mkv x <*> mkw x
 
 create ::Applicative f => Int -> f a -> f (Square a)
 create n =
-  fmap (Square n) . create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) n
+  fmap (Square n) .
+  create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) n
 
 create_ :: Applicative f
         => (forall b. Int -> Lens' (v b) b)
@@ -137,31 +133,23 @@ leP lev lew nv i f (Pair v w)
   | i < nv    = flip Pair w <$> lev i f v
   | otherwise = Pair v <$> lew (i-nv) f w
 
+------------------------------------------------------------------------
 -- Indexing
+------------------------------------------------------------------------
+
 type FlippedLens' s a = forall f. Functor f => s -> (a -> f a) -> f s
 
-ix_ :: (Int, Int) -> Lens' (Square_ v w a) a
-ix_ (i,j) = flip ix' where
+alterF :: (Int, Int) -> Lens' (Square_ v w a) a
+alterF (i,j) = flip ix' where
   ix' :: FlippedLens' (Square_ v w a) a
   ix' (Zero lev vv) = \f -> Zero lev <$> (lev i . lev j) f vv
   ix' (Even      m) = fmap Even . ix' m
   ix' (Odd       m) = fmap Odd  . ix' m
 
-instance Ixed (Square a) where
-  ix (i,j) f (Square n m)
-    | i >= n    = pure (Square n m)
-    | j >= n    = pure (Square n m)
-    | otherwise = Square n <$> ix_ (i,j) f m
-
-type instance Index (Square a) = (Int, Int)
-type instance IxValue (Square a) = a
-
-unsafeIndex :: Square a -> (Int, Int) -> a
-unsafeIndex (Square _ s) i = s ^. ix_ i
-
--- Instances
-
+------------------------------------------------------------------------
 -- Foldable and Traversable
+------------------------------------------------------------------------
+
 instance (Foldable v, Foldable w) => Foldable (Square_ v w) where
   foldMap f (Zero _ v) = (foldMap.foldMap) f v
   foldMap f (Even   v) = foldMap f v
@@ -176,110 +164,88 @@ instance (Traversable v, Traversable w)
     traverse f (Even   v) = Even   <$> traverse            f v
     traverse f (Odd    v) = Odd    <$> traverse            f v
 
+------------------------------------------------------------------------
 -- Eq and Ord
+------------------------------------------------------------------------
 
--- Eq1
-instance Eq1 None where _ ==# _ = True
+instance Eq1 None where liftEq _ _ _ = True
 
 instance (Eq1 v, Eq1 w) => Eq1 (Pair v w) where
-  Pair a b ==# Pair c d = a ==# c && b ==# d
-
--- Ord1
-instance Ord1 None where compare1 _ _ = EQ
+  liftEq eq (Pair a b) (Pair c d) = liftEq eq a c && liftEq eq b d
 
 instance (Ord1 v, Ord1 w) => Ord1 (Pair v w) where
-  compare1 (Pair a b) (Pair c d) = compare1 a c <> compare1 b d
+  liftCompare cmp (Pair a b) (Pair c d) =
+    liftCompare cmp a c <> liftCompare cmp b d
 
--- EqR1
-class Eq1 f => EqR1 f where
-  eqR1 :: (Eq a, EqR1 g) => f (g a) -> f (g a) -> Bool
+instance Ord1 None where
+  liftCompare _ _ _ = EQ
 
-instance EqR1 None where eqR1 _ _ = True
-
-instance EqR1 Identity where
-  eqR1 (Identity a) (Identity b) = a ==# b
-
-instance (EqR1 v, EqR1 w) => EqR1 (Pair v w) where
-  eqR1 (Pair a b) (Pair c d) = eqR1 a c && eqR1 b d
-
--- OrdR1
-class (Ord1 f, EqR1 f) => OrdR1 f where
-  cmpR1 :: (Ord a, OrdR1 g) => f (g a) -> f (g a) -> Ordering
-
-instance OrdR1 None where cmpR1 _ _ = EQ
-
-instance OrdR1 Identity where
-  cmpR1 (Identity a) (Identity b) = compare1 a b
-
-instance (OrdR1 v, OrdR1 w) => OrdR1 (Pair v w) where
-  cmpR1 (Pair a b) (Pair c d) = cmpR1 a c <> cmpR1 b d
-
--- Eq instances for 'Square'
-instance (EqR1 v, EqR1 w) => Eq1 (Square_ v w) where
-  Zero _ x ==# Zero _ y = eqR1 x y
-  Odd    x ==# Odd    y = x ==# y
-  Even   x ==# Even   y = x ==# y
-  _        ==# _        = False
+instance (Eq1 v, Eq1 w) => Eq1 (Square_ v w) where
+  liftEq eq (Zero _ x) (Zero _ y) = liftEq (liftEq eq) x y
+  liftEq eq (Odd    x) (Odd    y) = liftEq eq x y
+  liftEq eq (Even   x) (Even   y) = liftEq eq x y
+  liftEq _ _       _        = False
 
 instance Eq a => Eq (Square a) where
-  Square n v == Square m w = n == m && v ==# w
+  Square n v == Square m w = n == m && eq1 v w
 
 instance Eq1 Square where
-  Square n v ==# Square m w = n == m && v ==# w
+  liftEq eq (Square n v) (Square m w) = n == m && liftEq eq v w
 
--- Ord instances for 'Square'
-instance (OrdR1 v, OrdR1 w) => Ord1 (Square_ v w) where
-  compare1 (Zero _ x) (Zero _ y) = cmpR1 x y
-  compare1 (Odd    x) (Odd    y) = compare1 x y
-  compare1 (Even   x) (Even   y) = compare1 x y
+instance (Ord1 v, Ord1 w) => Ord1 (Square_ v w) where
+  liftCompare cmp (Zero _ x) (Zero _ y) =
+    (liftCompare.liftCompare) cmp x y
+  liftCompare cmp (Odd    x) (Odd    y) = liftCompare cmp x y
+  liftCompare cmp (Even   x) (Even   y) = liftCompare cmp x y
   -- Differently sized squares are compared on their sizes
-  compare1  _          _         = undefined
+  liftCompare _  _          _         = undefined
 
 instance Ord a => Ord (Square a) where
   compare (Square n v) (Square m w) = compare n m <> compare1 v w
 
 instance Ord1 Square where
-  compare1 (Square n v) (Square m w) = compare n m <> compare1 v w
+  liftCompare cmp (Square n v) (Square m w) =
+    compare n m <> liftCompare cmp v w
 
- -- Show
+groupTo :: Int -> [a] -> [[a]]
+groupTo n = unfoldr $ \case
+  [] -> Nothing
+  xs -> Just (splitAt n xs)
+
+------------------------------------------------------------------------
+-- Show
+------------------------------------------------------------------------
 instance Show a => Show (Square a) where
-  showsPrec _ (Square n m) =
-    flip (foldr (\e a -> e ('\n':a)))
-      [ showList [ m ^. ix_ (i,j) | j <- idxs] | i <- idxs]
-        where idxs = [0..(n-1)]
+  showsPrec n s =
+    showsPrec n . groupTo (_squareSize s) . foldr (:) [] $ s
 
--- Arbitrary
-instance Arbitrary a => Arbitrary (Square a) where
-  arbitrary = sized $ \n -> do
-    d <- wobble n <$> choose (0,n `div` 4) <*> arbitrary
-    create d arbitrary
-    where
-      wobble n m LT = n-m
-      wobble n _ EQ = n
-      wobble n m GT = n+m
-  shrink s@(Square n _) =
-    mapMaybe (`fromList` foldr (:) [] s) (shrink n)
-
--- Serialize
-instance Serialize a => Serialize (Square a) where
-  put s@(Square n _) = put n *> traverse_ put s
-  get = create <$> get >>= ($get)
-
+------------------------------------------------------------------------
 -- fromList
-newtype Source s a =
-  Source { runSource :: [s] -> Maybe (a, [s])
-         } deriving (Functor)
+------------------------------------------------------------------------
 
-pop :: Source s s
-pop = Source uncons
+newtype Source s a =
+  Source (forall c. (Maybe a -> List s -> c) -> List s -> c)
+
+instance Functor (Source s) where
+  fmap f (Source m) = Source (\t -> m (t . fmap f))
+  {-# INLINABLE fmap #-}
 
 instance Applicative (Source s) where
-  pure x = Source (\s -> Just (x, s))
-  Source f <*> Source x =
-    Source ((\(g,s) -> mapped._1 %~ g $ x s) <=< f)
+  pure x = Source (\t -> t (pure x))
+  {-# INLINABLE pure #-}
+  Source fs <*> Source xs =
+    Source (\t -> fs (\f -> xs (t . (<*>) f)))
+  {-# INLINABLE (<*>) #-}
 
-evalSource :: Source s a -> [s] -> Maybe a
-evalSource s = fmap fst . runSource s
+evalSource :: Source s a -> List s -> Maybe a
+evalSource (Source x) = x const
+{-# INLINABLE evalSource #-}
 
-fromList :: Int -> [a] -> Maybe (Square a)
-fromList n = evalSource (create n pop)
+newtype List a =
+  List (forall b. b -> (a -> List a -> b) -> b)
+
+fromList :: Foldable f => Int -> f a -> Maybe (Square a)
+fromList n = evalSource (create n pop) . foldr cons nil where
+  cons y ys = List (const (\g -> g y ys))
+  nil = List const
+  pop = Source (\t (List l) -> l (t Nothing nil) (t . Just))

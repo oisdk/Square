@@ -14,17 +14,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Data.Square
   default-language:    Haskell2010
-  build-depends:       base >= 4.7 && < 5
-                     , lens
-                     , QuickCheck
-                     , prelude-extras
-                     , cereal
-  other-extensions:    DeriveFoldable
-                     , DeriveFunctor
-                     , DeriveTraversable
-                     , LambdaCase
-                     , RankNTypes
-                     , TypeFamilies
+  build-depends:       base >= 4.9 && < 5
   ghc-options:         -Wall
 
 Test-Suite square-tests
@@ -33,5 +23,4 @@ Test-Suite square-tests
   build-depends:       base
                      , QuickCheck
                      , Square
-                     , cereal
   default-language:    Haskell2010
