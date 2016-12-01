@@ -54,7 +54,7 @@ type Lens s a = forall f. Functor f => (a -> f a) -> s -> f s
 
 data Square_ v w a =
     Zero (forall b. Int -> Lens (v b) b) (v (v a))
-  | Even (Square_      v     (Product w w) a)
+  | Even (Square_          v    (Product w w) a)
   | Odd  (Square_ (Product v w) (Product w w) a)
   deriving (Functor)
 
@@ -141,7 +141,9 @@ ix_ (i,j) = flip ix' where
   ix' (Even      m) = fmap Even . ix' m
   ix' (Odd       m) = fmap Odd  . ix' m
 
-alterF :: Applicative f => (a -> f a) -> (Int, Int) -> Square a -> f (Square a)
+alterF
+  :: Applicative f
+  => (a -> f a) -> (Int, Int) -> Square a -> f (Square a)
 alterF f (i,j) s@(Square n q)
   | i <  0 = pure s
   | j <  0 = pure s
@@ -182,7 +184,7 @@ instance (Eq1 v, Eq1 w) => Eq1 (Square_ v w) where
   liftEq eq (Zero _ x) (Zero _ y) = liftEq (liftEq eq) x y
   liftEq eq (Odd    x) (Odd    y) = liftEq eq x y
   liftEq eq (Even   x) (Even   y) = liftEq eq x y
-  liftEq _ _       _        = False
+  liftEq _   _          _         = False
 
 instance Eq a => Eq (Square a) where
   Square n v == Square m w = n == m && eq1 v w
@@ -213,6 +215,7 @@ groupTo n = unfoldr $ \case
 ------------------------------------------------------------------------
 -- Show
 ------------------------------------------------------------------------
+
 instance Show a => Show (Square a) where
   showsPrec n s =
     showsPrec n . groupTo (squareSize s) . foldr (:) [] $ s
