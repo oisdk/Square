@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveFoldable    #-}
 {-# LANGUAGE DeriveFunctor     #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase        #-}
@@ -10,16 +9,22 @@ module Data.Square
   , create
   , alterF
   , fromList
+  , (!)
+  , squareSize
   ) where
 
+import           Control.Applicative
 import           Data.Functor.Classes
 import           Data.Functor.Identity
+import           Data.Functor.Product
 import           Data.List
-import           Data.Monoid           ((<>))
+import           Data.Monoid hiding (Product(..))
+import           Data.Proxy
+import           Data.Coerce
 
 -- | This type represents a square matrix. In the form:
 --
--- > Square_ None Identity a
+-- > Square_ Proxy Identity a
 --
 -- It is unable to be a non-square. It is adapted from
 -- <http://www.usma.edu/eecs/SiteAssets/SitePages/Faculty%20Publication%20Documents/Okasaki/icfp99square.pdf Okasaki's>
@@ -27,17 +32,17 @@ import           Data.Monoid           ((<>))
 --
 -- > data Square_ v w a =
 -- >    Zero (v (v a))
--- >  | Even (Square_      v     (Pair w w) a)
--- >  | Odd  (Square_ (Pair v w) (Pair w w) a)
+-- >  | Even (Square_      v     (Product w w) a)
+-- >  | Odd  (Square_ (Product v w) (Product w w) a)
 --
 -- The extra field in the @Zero@ branch is a function which, when
--- given a valid index, produces a 'Lens' into the element at that
+-- given a valid index, produces a Lens into the element at that
 -- position. This could be accomplished without the field, but this
 -- way allows sharing of work across repeated access to different
 -- indices.
 data Square a =
-  Square { _squareSize :: Int
-         , _square     :: Square_ None Identity a
+  Square { squareSize :: Int
+         , _square     :: Square_ Proxy Identity a
          } deriving (Functor, Traversable)
 
 instance Foldable Square where
@@ -45,27 +50,13 @@ instance Foldable Square where
   foldMap f (Square _ s) = foldMap f s
   length    (Square n _) = n * n
 
-type Lens' s a = forall f. Functor f => (a -> f a) -> s -> f s
+type Lens s a = forall f. Functor f => (a -> f a) -> s -> f s
 
 data Square_ v w a =
-    Zero (forall b. Int -> Lens' (v b) b) (v (v a))
-  | Even (Square_      v     (Pair w w) a)
-  | Odd  (Square_ (Pair v w) (Pair w w) a)
+    Zero (forall b. Int -> Lens (v b) b) (v (v a))
+  | Even (Square_      v     (Product w w) a)
+  | Odd  (Square_ (Product v w) (Product w w) a)
   deriving (Functor)
-
--- In order to store the information in a square, three new types are
--- needed:
---
--- * a type for storing no elements: 'None'
--- * a type for storing one element: 'Identity' (from
--- "Data.Functor.Identity")
--- * a type for storing two sub-trees of elements: 'Pair'
-
-newtype None a = None ()
-  deriving (Functor, Foldable, Traversable, Eq, Ord)
-
-data Pair v w a = Pair (v a) (w a)
-  deriving (Functor, Foldable, Traversable, Eq, Ord)
 
 -- | The 'create_' function is really two functions combined into one:
 -- a normal creation function, with the signature:
@@ -78,8 +69,8 @@ data Pair v w a = Pair (v a) (w a)
 --
 -- And an indexing function for a lens, with the signature:
 --
--- >    (forall b. Int -> Lens' (v b) b)
--- > -> (forall b. Int -> Lens' (w b) b)
+-- >    (forall b. Int -> Lens (v b) b)
+-- > -> (forall b. Int -> Lens (w b) b)
 -- > -> Int -> Int
 --
 -- building the indexing function allows for sharing between access
@@ -87,17 +78,20 @@ data Pair v w a = Pair (v a) (w a)
 
 mkP
   :: Applicative f
-  => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Pair v w a)
-mkP mkv mkw x = Pair <$> mkv x <*> mkw x
+  => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Product v w a)
+mkP = (liftA2.liftA2) Pair
 
+-- | Creates a square of side length @n@ from some applicative.
+-- >>> create 1 (Just 'a')
+-- Just ["a"]
 create ::Applicative f => Int -> f a -> f (Square a)
 create n =
   fmap (Square n) .
-  create_ leE leI 0 1 ((const.pure.None) ()) (fmap Identity) n
+  create_ leE leI 0 1 ((const.pure) Proxy) (fmap Identity) n
 
 create_ :: Applicative f
-        => (forall b. Int -> Lens' (v b) b)
-        -> (forall b. Int -> Lens' (w b) b)
+        => (forall b. Int -> Lens (v b) b)
+        -> (forall b. Int -> Lens (w b) b)
         -> Int -> Int
         -> (forall b. f b -> f (v b))
         -> (forall b. f b -> f (w b))
@@ -114,21 +108,22 @@ create_ lev lew vsz wsz mkv mkw n
     create_
       (leP lev lew vsz) (leP lew lew wsz) (vsz+wsz) (wsz+wsz)
       (mkP mkv mkw) (mkP mkw mkw) (n `div` 2)
--- The indexing 'Lens' for 'None'. If this is called, it means an
+
+-- The indexing 'Lens for 'Proxy'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the
 -- 'Square' indexing functions.
-leE :: Int -> Lens' (None a) a
+leE :: Int -> Lens (Proxy a) a
 leE _ = undefined
 
--- The indexing 'Lens' for 'Identity'. This should only recieve @0@ as
+-- The indexing 'Lens for 'Identity'. This should only recieve @0@ as
 -- the index, however this is not checked, as it is check earlier.
-leI :: Int -> Lens' (Identity a) a
+leI :: Int -> Lens (Identity a) a
 leI _ f (Identity x) = Identity <$> f x
 
--- The indexing 'Lens' for a pair.
-leP :: (Int -> Lens' (v a) a)
-    -> (Int -> Lens' (w a) a)
-    -> Int -> Int -> Lens' (Pair v w a) a
+-- The indexing 'Lens for a pair.
+leP :: (Int -> Lens (v a) a)
+    -> (Int -> Lens (w a) a)
+    -> Int -> Int -> Lens (Product v w a) a
 leP lev lew nv i f (Pair v w)
   | i < nv    = flip Pair w <$> lev i f v
   | otherwise = Pair v <$> lew (i-nv) f w
@@ -137,14 +132,29 @@ leP lev lew nv i f (Pair v w)
 -- Indexing
 ------------------------------------------------------------------------
 
-type FlippedLens' s a = forall f. Functor f => s -> (a -> f a) -> f s
+type FlippedLens s a = forall f. Functor f => s -> (a -> f a) -> f s
 
-alterF :: (Int, Int) -> Lens' (Square_ v w a) a
-alterF (i,j) = flip ix' where
-  ix' :: FlippedLens' (Square_ v w a) a
+ix_ :: (Int, Int) -> Lens (Square_ v w a) a
+ix_ (i,j) = flip ix' where
+  ix' :: FlippedLens (Square_ v w a) a
   ix' (Zero lev vv) = \f -> Zero lev <$> (lev i . lev j) f vv
   ix' (Even      m) = fmap Even . ix' m
   ix' (Odd       m) = fmap Odd  . ix' m
+
+alterF :: Applicative f => (a -> f a) -> (Int, Int) -> Square a -> f (Square a)
+alterF f (i,j) s@(Square n q)
+  | i <  0 = pure s
+  | j <  0 = pure s
+  | i >= n = pure s
+  | j >= n = pure s
+  | otherwise = Square n <$> ix_ (i,j) f q
+
+(!) :: Square a -> (Int, Int) -> Maybe a
+s ! i = (getFirst .# getConst) ((`alterF` i) (Const .# First .# Just) s)
+
+infixr 9 .#
+(.#) :: Coercible b c => (b -> c) -> (a -> b) -> a -> c
+(.#) _ = coerce
 
 ------------------------------------------------------------------------
 -- Foldable and Traversable
@@ -167,18 +177,6 @@ instance (Traversable v, Traversable w)
 ------------------------------------------------------------------------
 -- Eq and Ord
 ------------------------------------------------------------------------
-
-instance Eq1 None where liftEq _ _ _ = True
-
-instance (Eq1 v, Eq1 w) => Eq1 (Pair v w) where
-  liftEq eq (Pair a b) (Pair c d) = liftEq eq a c && liftEq eq b d
-
-instance (Ord1 v, Ord1 w) => Ord1 (Pair v w) where
-  liftCompare cmp (Pair a b) (Pair c d) =
-    liftCompare cmp a c <> liftCompare cmp b d
-
-instance Ord1 None where
-  liftCompare _ _ _ = EQ
 
 instance (Eq1 v, Eq1 w) => Eq1 (Square_ v w) where
   liftEq eq (Zero _ x) (Zero _ y) = liftEq (liftEq eq) x y
@@ -217,7 +215,7 @@ groupTo n = unfoldr $ \case
 ------------------------------------------------------------------------
 instance Show a => Show (Square a) where
   showsPrec n s =
-    showsPrec n . groupTo (_squareSize s) . foldr (:) [] $ s
+    showsPrec n . groupTo (squareSize s) . foldr (:) [] $ s
 
 ------------------------------------------------------------------------
 -- fromList

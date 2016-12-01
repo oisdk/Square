@@ -1,5 +1,5 @@
 name:                Square
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            Okasaki's Square matrices with nested types
 description:         Please see README.md
 homepage:            https://github.com/oisdk/Square#readme
@@ -21,6 +21,7 @@ Test-Suite square-tests
   Type:                exitcode-stdio-1.0
   main-is:             test/square-tests.hs
   build-depends:       base
-                     , QuickCheck
+                     , doctest
+                     , QuickCheck >= 2.8
                      , Square
   default-language:    Haskell2010

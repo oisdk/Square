@@ -1,71 +1,39 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
-module Main where
+module Main (main) where
 
-import           Control.Applicative
-import           Control.Monad
-import           Data.Functor
-import           Data.Ord
-import           Data.Serialize           (Serialize, decode, encode)
+import           Data.Foldable
+import           Data.Ix
+import           Data.Maybe      (catMaybes)
 import           Data.Square
-import           System.Exit
+import           Test.DocTest
 import           Test.QuickCheck
-import qualified Test.QuickCheck.Property as P
 
-toList :: Foldable f => f a -> [a]
-toList = foldr (:) []
+squares :: Arbitrary a => Gen (Square a)
+squares = sized (`create` arbitrary)
 
-prop_correctSize :: Square Integer -> Bool
-prop_correctSize s = n * n == length s where n = _squareSize s
+intSquares :: Gen (Square Integer)
+intSquares = squares
 
-prop_listIso :: NonEmptyList Integer -> Bool
-prop_listIso (NonEmpty xs) = sameResult (Just . take m) (fmap toList . fromList n) xs where
-  n = (floor . sqrt' . fromIntegral . length) xs
-  m = n * n
-  sqrt' :: Double -> Double
-  sqrt' = sqrt
+selfEqualsSelf :: (Show a, Eq a) => a -> Property
+selfEqualsSelf s = s === s
 
-prop_listRev :: Square Integer -> Bool
-prop_listRev s = sameResult Just (fromList n . toList) s where
-  n = _squareSize s
+fromListToListIsId :: (Eq a, Show a) => [a] -> Property
+fromListToListIsId xs =
+  let n = (floor.sqrt.fromIntegral.length) xs
+      Just s = fromList n xs
+  in toList s === take (n*n) xs
 
-prop_Indexing :: Square Integer -> Bool
-prop_Indexing s = map (unsafeIndex s) ((,) <$> idxs <*> idxs) == toList s where
-  idxs = [0..(_squareSize s - 1)]
+indexingIsConsistent :: (Eq a, Show a) => Square a -> Property
+indexingIsConsistent s =
+  toList s ===
+  catMaybes [ s ! (i,j)
+            | (i,j) <- range ((0,0),(squareSize s - 1, squareSize s - 1))]
 
-prop_Ordering :: Square Integer -> Square Integer -> Property
-prop_Ordering s t = classify (c==EQ) "Same size squares" . classify (c/=EQ) "Different sized squares" $
-  case c of
-    EQ -> r == comparing toList s t
-    _  -> r == c
-    where
-      c = comparing _squareSize s t
-      r = compare s t
-
-prop_Serialize :: Square Int -> P.Result
-prop_Serialize = checkSerialize
-
-sameResult :: Eq a => (b -> a) -> (b -> a) -> b -> Bool
-sameResult = liftA2 (==)
-
-sameResult2 :: Eq a => (c -> b -> a) -> (c -> b -> a) -> c -> b -> Bool
-sameResult2 = liftA2 sameResult
-
-isId :: Eq a => (a -> a) -> a -> Bool
-isId = sameResult id
-
-checkSerialize :: (Eq a, Serialize a) => a -> P.Result
-checkSerialize a = either failWith (\x -> if x == a then P.succeeded else P.failed) . decode . encode $ a
-
-quickCheckExit :: Testable prop => prop -> IO Result
-quickCheckExit = resultExit <=< quickCheckResult where
-  resultExit r@ Success{}  = pure r
-  resultExit r = exitFailure $> r
-
-failWith :: String -> P.Result
-failWith r = P.failed { P.reason = r }
-
-return []
-runTests = $forAllProperties quickCheckExit
-
-main = runTests
+main :: IO ()
+main = do
+  quickCheck (forAll intSquares selfEqualsSelf)
+  quickCheck (fromListToListIsId :: [Integer] -> Property)
+  quickCheck (forAll intSquares indexingIsConsistent)
+  doctest [ "-isrc"
+          , "src/Data/Square.hs" ]
