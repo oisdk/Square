@@ -14,13 +14,13 @@ module Data.Square
   ) where
 
 import           Control.Applicative
+import           Data.Coerce
 import           Data.Functor.Classes
 import           Data.Functor.Identity
 import           Data.Functor.Product
 import           Data.List
-import           Data.Monoid hiding (Product(..))
+import           Data.Monoid           hiding (Product (..))
 import           Data.Proxy
-import           Data.Coerce
 
 -- | This type represents a square matrix. In the form:
 --
@@ -42,7 +42,7 @@ import           Data.Coerce
 -- indices.
 data Square a =
   Square { squareSize :: Int
-         , _square     :: Square_ Proxy Identity a
+         , _square    :: Square_ Proxy Identity a
          } deriving (Functor, Traversable)
 
 instance Foldable Square where
