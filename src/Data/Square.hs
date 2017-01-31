@@ -21,7 +21,8 @@ module Data.Square
   ,fromList
   ,create
   ,alterF
-  ,(!))
+  ,(!)
+  ,ithRow)
   where
 
 import Control.Applicative
@@ -65,7 +66,7 @@ type family ToBinary (n :: Nat) :: Binary where
 -- >  | Odd  (Square_ (Product v w) (Product w w) a)
 --
 -- The extra field in the @Zero@ branch is a function which, when
--- given a valid index, produces a Lens into the element at that
+-- given a valid index, produces a Traversal into the element at that
 -- position. This could be accomplished without the field, but this
 -- way allows sharing of work across repeated access to different
 -- indices.
@@ -73,10 +74,10 @@ newtype Square n a =
   Square { getSquare :: Square_ (ToBinary n) Proxy Identity a
          } deriving (Functor, Foldable, Traversable, Eq, Ord, Eq1, Ord1)
 
-type Lens s a = ∀ f. Functor f => (a -> f a) -> s -> f s
+type Traversal s a = ∀ f. Applicative f => (a -> f a) -> s -> f s
 
 data Square_ n v w a where
-  Zero :: (∀ b. Int -> Lens (v b) b) -> v (v a) -> Square_ 'Z v w a
+  Zero :: (∀ b. Int -> Traversal (v b) b) -> v (v a) -> Square_ 'Z v w a
   Even :: Square_ n          v    (Product w w) a   -> Square_ ('O n) v w a
   Odd  :: Square_ n (Product v w) (Product w w) a   -> Square_ ('I n) v w a
 
@@ -128,38 +129,6 @@ instance Show a => Show (FreeMonoid a) where
 toFreeMonoid :: Foldable f => f a -> FreeMonoid a
 toFreeMonoid xs = FreeMonoid (`foldMap` xs)
 
-class Monoid1 f  where
-    liftMappend :: a -> (a -> a -> a) -> f a -> f a -> f a
-    liftEmpty :: a -> f a
-
-instance Monoid1 Identity where
-    liftMappend _ = coerce
-    liftEmpty = coerce
-    {-# INLINE liftMappend #-}
-    {-# INLINE liftEmpty #-}
-
-instance Monoid1 Proxy where
-    liftMappend _ _ _ _ = Proxy
-    liftEmpty _ = Proxy
-    {-# INLINE liftMappend #-}
-    {-# INLINE liftEmpty #-}
-
-instance (Monoid1 w, Monoid1 v) =>
-         Monoid1 (Product w v) where
-    liftMappend empt mapp (Pair w x) (Pair y z) =
-        Pair (liftMappend empt mapp w y) (liftMappend empt mapp x z)
-    liftEmpty e = Pair (liftEmpty e) (liftEmpty e)
-    {-# INLINE liftMappend #-}
-    {-# INLINE liftEmpty #-}
-
-mappend1 :: (Monoid1 f, Monoid a) => f a -> f a -> f a
-mappend1 = liftMappend mempty mappend
-{-# INLINE mappend1 #-}
-
-empty1 :: (Monoid1 f, Monoid a) => f a
-empty1 = liftEmpty mempty
-{-# INLINE empty1 #-}
-
 rows :: Square n a -> FreeMonoid (FreeMonoid a)
 rows = go toFreeMonoid . getSquare
   where
@@ -172,13 +141,21 @@ rows = go toFreeMonoid . getSquare
       where
         g (Pair vs ws) = f vs <> toFreeMonoid ws
 
+ithRow :: Int -> Traversal (Square n a) a
+ithRow i fs (Square s) = fmap Square (go fs s) where
+  go :: (Traversable v, Traversable w, Applicative f) => (a -> f a) -> Square_ n v w a -> f (Square_ n v w a)
+  go f (Zero lev vv) = fmap (Zero lev) ((lev i . traverse) f vv)
+  go f (Even x) = fmap Even (go f x)
+  go f (Odd x) = fmap Odd (go f x)
+
 cols :: Square n a -> FreeMonoid (FreeMonoid a)
 cols = go . getSquare
   where
     go
-        :: (Foldable v, Foldable w, Functor v, Functor w, Monoid1 v, Monoid1 w)
+        :: (Foldable v, Foldable w, Applicative v, Applicative w)
         => Square_ n v w a -> FreeMonoid (FreeMonoid a)
-    go (Zero _ x) = toFreeMonoid (foldr (mappend1 . fmap pure) empty1 x)
+    go (Zero _ x) =
+        toFreeMonoid (foldr (liftA2 mappend . fmap pure) (pure mempty) x)
     go (Even s) = go s
     go (Odd s) = go s
 
@@ -198,26 +175,30 @@ mulMat x y =
     let Just res = (fromList . toList . fold)  (mulM x y)
     in res
 
-combAdd :: (Monoid1 v, Semiring a) => v a -> v a -> v a
-combAdd = liftMappend zero (<+>)
-{-# INLINE combAdd #-}
+instance Create (ToBinary n) =>
+         Applicative (Square n) where
+    pure =
+        (coerce :: (Identity a -> Identity (Square n a)) -> a -> Square n a)
+            create
+    Square fs <*> Square xs = Square (go fs xs)
+      where
+        go
+            :: forall m v w a b.
+               (Applicative v, Applicative w)
+            => Square_ m v w (a -> b) -> Square_ m v w a -> Square_ m v w b
+        go (Zero _ vx) (Zero ly vy) = Zero ly (liftA2 (<*>) vx vy)
+        go (Even f) (Even x) = Even (go f x)
+        go (Odd f) (Odd x) = Odd (go f x)
 
-addMat :: (Semiring a) => Square n a -> Square n a -> Square n a
-addMat (Square x) (Square y) = Square (go x y)
-  where
-    go
-        :: (Functor v, Monoid1 v, Semiring a, Functor w, Monoid1 w)
-        => Square_ n v w a -> Square_ n v w a -> Square_ n v w a
-    go (Zero _ vx) (Zero ly vy) =
-        Zero ly (liftMappend (liftEmpty zero) combAdd vx vy)
-    go (Even xs) (Even ys) = Even (go xs ys)
-    go (Odd xs) (Odd ys) = Odd (go xs ys)
-
-instance (Semiring a, Create (ToBinary n), KnownNat n) => Semiring (Square n a) where
-  (<.>) = mulMat
-  (<+>) = addMat
-  one = evalUpd (0,0) (create (ones (fromInteger $ natVal (Proxy :: Proxy n))))
-  zero = runIdentity (create (Identity zero))
+instance (Semiring a, Create (ToBinary n), KnownNat n) =>
+         Semiring (Square n a) where
+    (<.>) = mulMat
+    (<+>) = liftA2 (<+>)
+    one =
+        evalUpd
+            (0, 0)
+            (create (ones (fromInteger $ natVal (Proxy :: Proxy n))))
+    zero = runIdentity (create (Identity zero))
 
 -- | The 'create_' function is really two functions combined into one:
 -- a normal creation function, with the signature:
@@ -230,8 +211,8 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) => Semiring (Square n a) 
 --
 -- And an indexing function for a lens, with the signature:
 --
--- >    (∀ b. Int -> Lens (v b) b)
--- > -> (∀ b. Int -> Lens (w b) b)
+-- >    (∀ b. Int -> Traversal (v b) b)
+-- > -> (∀ b. Int -> Traversal (w b) b)
 -- > -> Int -> Int
 --
 -- building the indexing function allows for sharing between access
@@ -253,8 +234,8 @@ create =
 class Create (n :: Binary)  where
     create_
         :: Applicative f
-        => (∀ b. Int -> Lens (v b) b)
-        -> (∀ b. Int -> Lens (w b) b)
+        => (∀ b. Int -> Traversal (v b) b)
+        -> (∀ b. Int -> Traversal (w b) b)
         -> Int
         -> Int
         -> (∀ b. f b -> f (v b))
@@ -283,21 +264,21 @@ instance Create n =>
             (mkP mkv mkw)
             (mkP mkw mkw)
 
--- The indexing 'Lens for 'Proxy'. If this is called, it means an
+-- The indexing 'Traversal' for 'Proxy'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the
 -- 'Square' indexing functions.
-leE :: Int -> Lens (Proxy a) a
-leE _ = undefined
+leE :: Int -> Traversal (Proxy a) a
+leE _ _ _ = pure Proxy
 
--- The indexing 'Lens for 'Identity'. This should only recieve @0@ as
+-- The indexing 'Traversal for 'Identity'. This should only recieve @0@ as
 -- the index, however this is not checked, as it is check earlier.
-leI :: Int -> Lens (Identity a) a
+leI :: Int -> Traversal (Identity a) a
 leI _ f (Identity x) = Identity <$> f x
 
--- The indexing 'Lens for a pair.
-leP :: (Int -> Lens (v a) a)
-    -> (Int -> Lens (w a) a)
-    -> Int -> Int -> Lens (Product v w a) a
+-- The indexing 'Traversal for a pair.
+leP :: (Int -> Traversal (v a) a)
+    -> (Int -> Traversal (w a) a)
+    -> Int -> Int -> Traversal (Product v w a) a
 leP lev lew nv i f (Pair v w)
   | i < nv    = flip Pair w <$> lev i f v
   | otherwise = Pair v <$> lew (i-nv) f w
@@ -306,11 +287,11 @@ leP lev lew nv i f (Pair v w)
 -- Indexing
 ------------------------------------------------------------------------
 
-type FlippedLens s a = ∀ f. Functor f => s -> (a -> f a) -> f s
+type FlippedTraversal s a = ∀ f. Applicative f => s -> (a -> f a) -> f s
 
-ix_ :: (Int, Int) -> Lens (Square_ n v w a) a
+ix_ :: (Int, Int) -> Traversal (Square_ n v w a) a
 ix_ (i,j) = flip ix' where
-  ix' :: FlippedLens (Square_ n v w a) a
+  ix' :: FlippedTraversal (Square_ n v w a) a
   ix' (Zero lev vv) = \f -> Zero lev <$> (lev i . lev j) f vv
   ix' (Even      m) = fmap Even . ix' m
   ix' (Odd       m) = fmap Odd  . ix' m
@@ -361,7 +342,7 @@ instance (Ord1 v, Ord1 w) =>
 ------------------------------------------------------------------------
 
 instance Show a => Show (Square n a) where
-  showsPrec n s = showsPrec n (toList (fmap toList (rows s)))
+  showsPrec n = showsPrec n . toList . fmap toList . rows
 
 ------------------------------------------------------------------------
 -- fromList
