@@ -3,7 +3,8 @@ resolver: lts-7.11
 packages:
 - '.'
 
-extra-deps: []
+extra-deps:
+  - semiring-num-0.6.0.0
 
 flags: {}
 
