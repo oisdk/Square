@@ -270,10 +270,10 @@ instance Create n =>
 leE :: Int -> Traversal (Proxy a) a
 leE _ _ _ = pure Proxy
 
--- The indexing 'Traversal for 'Identity'. This should only recieve @0@ as
--- the index, however this is not checked, as it is check earlier.
+-- The indexing 'Traversal for 'Identity'.
 leI :: Int -> Traversal (Identity a) a
-leI _ f (Identity x) = Identity <$> f x
+leI 0 f (Identity x) = Identity <$> f x
+leI _ _ i = pure i
 
 -- The indexing 'Traversal for a pair.
 leP :: (Int -> Traversal (v a) a)
