@@ -25,4 +25,5 @@ Test-Suite square-tests
                      , doctest
                      , QuickCheck >= 2.8
                      , Square
+                     , semiring-num >= 0.6
   default-language:    Haskell2010

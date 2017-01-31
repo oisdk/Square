@@ -13,6 +13,7 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Data.Square
   (Square
@@ -22,7 +23,8 @@ module Data.Square
   ,create
   ,alterF
   ,(!)
-  ,ithRow)
+  ,ithRow
+  ,Creatable)
   where
 
 import Control.Applicative
@@ -35,6 +37,9 @@ import Data.Proxy
 import Data.Foldable
 import Data.Semiring
 import GHC.TypeLits
+
+-- $setup
+-- >>> :set -XDataKinds
 
 data Binary = Z | O Binary | I Binary
 
@@ -224,7 +229,7 @@ mkP
 mkP = (liftA2.liftA2) Pair
 
 -- | Creates a square of side length @n@ from some applicative.
--- >>> create 1 (Just 'a')
+-- >>> create (Just 'a') :: Maybe (Square 1 Char)
   -- Just ["a"]
 create :: (Applicative f, Create (ToBinary n)) => f a -> f (Square n a)
 create =
@@ -263,6 +268,8 @@ instance Create n =>
             (wsz + wsz)
             (mkP mkv mkw)
             (mkP mkw mkw)
+
+type Creatable n = Create (ToBinary n)
 
 -- The indexing 'Traversal' for 'Proxy'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the

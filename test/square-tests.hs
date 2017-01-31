@@ -1,39 +1,36 @@
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE DataKinds #-}
 
 module Main (main) where
 
-import           Data.Foldable
-import           Data.Ix
-import           Data.Maybe      (catMaybes)
 import           Data.Square
 import           Test.DocTest
 import           Test.QuickCheck
+import Test.Semiring
 
-squares :: Arbitrary a => Gen (Square a)
-squares = sized (`create` arbitrary)
+instance (Creatable n, Arbitrary a) => Arbitrary (Square n a) where
+  arbitrary = create arbitrary
 
-intSquares :: Gen (Square Integer)
-intSquares = squares
+instance Testable (Either String a) where
+  property (Right _) = property True
+  property (Left s) = counterexample s False
 
-selfEqualsSelf :: (Show a, Eq a) => a -> Property
-selfEqualsSelf s = s === s
 
-fromListToListIsId :: (Eq a, Show a) => [a] -> Property
-fromListToListIsId xs =
-  let n = (floor.sqrt.fromIntegral.length) xs
-      Just s = fromList n xs
-  in toList s === take (n*n) xs
-
-indexingIsConsistent :: (Eq a, Show a) => Square a -> Property
-indexingIsConsistent s =
-  toList s ===
-  catMaybes [ s ! (i,j)
-            | (i,j) <- range ((0,0),(squareSize s - 1, squareSize s - 1))]
+type Unary a  = a -> Either String String
+type Binary a  = a -> a -> Either String String
+type Ternary a  = a -> a -> a -> Either String String
 
 main :: IO ()
 main = do
-  quickCheck (forAll intSquares selfEqualsSelf)
-  quickCheck (fromListToListIsId :: [Integer] -> Property)
-  quickCheck (forAll intSquares indexingIsConsistent)
-  doctest [ "-isrc"
-          , "src/Data/Square.hs" ]
+    quickCheck (unaryLaws   :: Unary   (Square 2 Integer))
+    quickCheck (binaryLaws  :: Binary  (Square 2 Integer))
+    quickCheck (ternaryLaws :: Ternary (Square 2 Integer))
+    quickCheck (unaryLaws   :: Unary   (Square 3 Integer))
+    quickCheck (binaryLaws  :: Binary  (Square 3 Integer))
+    quickCheck (ternaryLaws :: Ternary (Square 3 Integer))
+    quickCheck (unaryLaws   :: Unary   (Square 9 Integer))
+    quickCheck (binaryLaws  :: Binary  (Square 9 Integer))
+    quickCheck (ternaryLaws :: Ternary (Square 9 Integer))
+    doctest ["-isrc", "src/Data/Square.hs"]
