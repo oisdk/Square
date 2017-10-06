@@ -35,8 +35,9 @@ import Data.Functor.Product
 import Data.Monoid hiding (Product(..))
 import Data.Proxy
 import Data.Foldable
-import Data.Semiring
 import GHC.TypeLits
+
+import Data.Semiring
 
 -- $setup
 -- >>> :set -XDataKinds
@@ -90,61 +91,20 @@ deriving instance (Functor v, Functor w) => Functor (Square_ n v w)
 deriving instance (Foldable v, Foldable w) => Foldable (Square_ n v w)
 deriving instance (Traversable v, Traversable w) => Traversable (Square_ n v w)
 
-newtype FreeMonoid a = FreeMonoid { runFree :: ∀ b. Monoid b => (a -> b) -> b }
-
-instance Monoid (FreeMonoid a) where
-  mempty = FreeMonoid (const mempty)
-  {-# INLINE mempty #-}
-  mappend (FreeMonoid x) (FreeMonoid y) = FreeMonoid (\f -> x f <> y f)
-  {-# INLINE mappend #-}
-
-instance Functor FreeMonoid where
-  fmap f (FreeMonoid fld) = FreeMonoid (\g -> fld (g . f))
-  {-# INLINE fmap #-}
-
-newtype Sequence f a = Sequence { unSequence :: f a } deriving (Functor, Applicative)
-
-instance (Applicative f, Monoid a) =>
-         Monoid (Sequence f a) where
-    mempty = Sequence (pure mempty)
-    {-# INLINE mempty #-}
-    mappend =
-        (coerce :: (f a -> f a -> f a) -> Sequence f a -> Sequence f a -> Sequence f a)
-            (liftA2 mappend)
-    {-# INLINE mappend #-}
-
-instance Applicative FreeMonoid where
-    pure x = FreeMonoid ($x)
-    FreeMonoid fs <*> FreeMonoid xs =
-        FreeMonoid
-            (\k ->
-                  fs
-                      (\c ->
-                            xs (k . c)))
-
-instance Foldable FreeMonoid where foldMap = flip runFree
-
-instance Traversable FreeMonoid where
-  traverse f (FreeMonoid xs) = (unSequence .# xs) (Sequence .# fmap pure . f)
-  {-# INLINE traverse #-}
-
-instance Show a => Show (FreeMonoid a) where
-  showsPrec n = showsPrec n . toList
-
-toFreeMonoid :: Foldable f => f a -> FreeMonoid a
-toFreeMonoid xs = FreeMonoid (`foldMap` xs)
-
-rows :: Square n a -> FreeMonoid (FreeMonoid a)
-rows = go toFreeMonoid . getSquare
+-- |
+-- >>> fmap rows (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
+-- Just [[1,2],[3,4]]
+rows :: Square n a -> [[a]]
+rows = go (flip (foldr (:))) . getSquare
   where
     go
         :: (Foldable w, Foldable v, Functor v, Functor w)
-        => (v a -> FreeMonoid a) -> Square_ n v w a -> FreeMonoid (FreeMonoid a)
-    go f (Zero _ x) = toFreeMonoid (fmap f x)
+        => (v a -> [a] -> [a]) -> Square_ n v w a -> [[a]]
+    go f (Zero _ x) = toList (fmap (`f` []) x)
     go f (Even s) = go f s
     go f (Odd s) = go g s
       where
-        g (Pair vs ws) = f vs <> toFreeMonoid ws
+        g (Pair vs ws) = f vs . flip (foldr (:)) ws
 
 ithRow :: Int -> Traversal (Square n a) a
 ithRow i fs (Square s) = fmap Square (go fs s) where
@@ -153,23 +113,23 @@ ithRow i fs (Square s) = fmap Square (go fs s) where
   go f (Even x) = fmap Even (go f x)
   go f (Odd x) = fmap Odd (go f x)
 
-cols :: Square n a -> FreeMonoid (FreeMonoid a)
+cols :: Square n a -> [[a]]
 cols = go . getSquare
   where
     go
         :: (Foldable v, Foldable w, Applicative v, Applicative w)
-        => Square_ n v w a -> FreeMonoid (FreeMonoid a)
+        => Square_ n v w a -> [[a]]
     go (Zero _ x) =
-        toFreeMonoid (foldr (liftA2 mappend . fmap pure) (pure mempty) x)
+        toList (foldr (liftA2 mappend . fmap pure) (pure mempty) x)
     go (Even s) = go s
     go (Odd s) = go s
 
 mulM
     :: Semiring a
-    => Square n a -> Square n a -> FreeMonoid (FreeMonoid a)
-mulM x y = fmap (f . toList) (rows x)
+    => Square n a -> Square n a -> [[a]]
+mulM x y = fmap f (rows x)
   where
-    f r = fmap (g r . toList) c
+    f r = fmap (g r) c
     c = cols y
     g rs cs = add (zipWith (<.>) rs cs)
 
@@ -177,7 +137,7 @@ mulMat
     :: (Semiring a, Create (ToBinary n))
     => Square n a -> Square n a -> Square n a
 mulMat x y =
-    let Just res = (fromList . toList . fold)  (mulM x y)
+    let Just res = (fromList . fold)  (mulM x y)
     in res
 
 instance Create (ToBinary n) =>
@@ -225,7 +185,7 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) =>
 
 mkP
   :: Applicative f
-  => (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Product v w a)
+  =>  (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Product v w a)
 mkP = (liftA2.liftA2) Pair
 
 -- | Creates a square of side length @n@ from some applicative.
@@ -233,35 +193,41 @@ mkP = (liftA2.liftA2) Pair
   -- Just ["a"]
 create :: (Applicative f, Create (ToBinary n)) => f a -> f (Square n a)
 create =
-    fmap Square . create_ leE leI 0 1 ((const . pure) Proxy) (fmap Identity)
-
+    create_ Square leE leI 0 1 ((const . pure) Proxy) ( fmap Identity)
 
 class Create (n :: Binary)  where
     create_
         :: Applicative f
-        => (∀ b. Int -> Traversal (v b) b)
-        -> (∀ b. Int -> Traversal (w b) b)
+        => (Square_ n v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
         -> Int
         -> Int
-        -> (∀ b. f b -> f (v b))
-        -> (∀ b. f b -> f (w b))
+        -> (forall b. f b -> f (v b))
+        -> (forall b. f b -> f (w b))
         -> f a
-        -> f (Square_ n v w a)
+        -> f c
 
 instance Create 'Z where
-    create_ lev _ _ _ mkv _ = fmap (Zero lev) . mkv . mkv
+    create_ k lev _ _ _ mkv _ = fmap (k . Zero lev) . mkv . mkv
 
 instance Create n =>
          Create ('O n) where
-    create_ lev lew vsz wsz mkv mkw =
-        fmap Even .
-        create_ lev (leP lew lew wsz) vsz (wsz + wsz) mkv (mkP mkw mkw)
+    create_ k lev lew vsz wsz mkv mkw =
+        create_
+            (k . Even)
+            lev
+            (leP lew lew wsz)
+            vsz
+            (wsz + wsz)
+            mkv
+            (mkP mkw mkw)
 
 instance Create n =>
          Create ('I n) where
-    create_ lev lew vsz wsz mkv mkw =
-        fmap Odd .
+    create_ k lev lew vsz wsz mkv mkw =
         create_
+            (k . Odd)
             (leP lev lew vsz)
             (leP lew lew wsz)
             (vsz + wsz)
