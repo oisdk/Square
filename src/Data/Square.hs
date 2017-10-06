@@ -107,11 +107,11 @@ rows = go (flip (foldr (:))) . getSquare
         g (Pair vs ws) = f vs . flip (foldr (:)) ws
 
 ithRow :: Int -> Traversal (Square n a) a
-ithRow i fs (Square s) = fmap Square (go fs s) where
-  go :: (Traversable v, Traversable w, Applicative f) => (a -> f a) -> Square_ n v w a -> f (Square_ n v w a)
-  go f (Zero lev vv) = fmap (Zero lev) ((lev i . traverse) f vv)
-  go f (Even x) = fmap Even (go f x)
-  go f (Odd x) = fmap Odd (go f x)
+ithRow i fs (Square s) = fmap Square (go id fs s) where
+  go :: (Traversable v, Traversable w, Applicative f) => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
+  go k f (Zero lev vv) = fmap (k . Zero lev) ((lev i . traverse) f vv)
+  go k f (Even x) = go (k . Even) f x
+  go k f (Odd x) = go (k . Odd) f x
 
 cols :: Square n a -> [[a]]
 cols = go . getSquare
@@ -259,14 +259,12 @@ leP lev lew nv i f (Pair v w)
 -- Indexing
 ------------------------------------------------------------------------
 
-type FlippedTraversal s a = ∀ f. Applicative f => s -> (a -> f a) -> f s
-
 ix_ :: (Int, Int) -> Traversal (Square_ n v w a) a
-ix_ (i,j) = flip ix' where
-  ix' :: FlippedTraversal (Square_ n v w a) a
-  ix' (Zero lev vv) = \f -> Zero lev <$> (lev i . lev j) f vv
-  ix' (Even      m) = fmap Even . ix' m
-  ix' (Odd       m) = fmap Odd  . ix' m
+ix_ (i,j) (f :: a -> f a) = ix' id where
+  ix' :: ∀ b n v w. (Square_ n v w a -> b) -> Square_ n v w a -> f b
+  ix' k (Zero lev vv) = (k . Zero lev) <$> (lev i . lev j) f vv
+  ix' k (Even      m) = ix' (k . Even) m
+  ix' k (Odd       m) = ix' (k . Odd) m
 
 alterF
   :: (Applicative f, KnownNat n)
@@ -314,7 +312,7 @@ instance (Ord1 v, Ord1 w) =>
 ------------------------------------------------------------------------
 
 instance Show a => Show (Square n a) where
-  showsPrec n = showsPrec n . toList . fmap toList . rows
+  showsPrec n = showsPrec n . rows
 
 ------------------------------------------------------------------------
 -- fromList
