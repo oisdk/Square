@@ -161,7 +161,6 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) =>
     (<+>) = liftA2 (<+>)
     one =
         evalUpd
-            (0, 0)
             (create (ones (fromInteger $ natVal (Proxy :: Proxy n))))
     zero = runIdentity (create (Identity zero))
 
@@ -185,15 +184,15 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) =>
 
 mkP
   :: Applicative f
-  =>  (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f (Product v w a)
-mkP = (liftA2.liftA2) Pair
+  => (Product v w a -> b) -> (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f b
+mkP k = (liftA2.liftA2) (\x y -> k (Pair x y))
 
 -- | Creates a square of side length @n@ from some applicative.
 -- >>> create (Just 'a') :: Maybe (Square 1 Char)
   -- Just ["a"]
 create :: (Applicative f, Create (ToBinary n)) => f a -> f (Square n a)
 create =
-    create_ Square leE leI 0 1 ((const . pure) Proxy) ( fmap Identity)
+    create_ Square leE leI 0 1 (\k -> (const . pure) (k Proxy)) (fmap Identity)
 
 class Create (n :: Binary)  where
     create_
@@ -203,13 +202,13 @@ class Create (n :: Binary)  where
         -> (forall b. Int -> Traversal (w b) b)
         -> Int
         -> Int
-        -> (forall b. f b -> f (v b))
+        -> (forall b d. (v b -> d) -> f b -> f d)
         -> (forall b. f b -> f (w b))
         -> f a
         -> f c
 
 instance Create 'Z where
-    create_ k lev _ _ _ mkv _ = fmap (k . Zero lev) . mkv . mkv
+    create_ k lev _ _ _ mkv _ = mkv (k . Zero lev) . mkv id
 
 instance Create n =>
          Create ('O n) where
@@ -221,7 +220,7 @@ instance Create n =>
             vsz
             (wsz + wsz)
             mkv
-            (mkP mkw mkw)
+            (mkP id mkw mkw)
 
 instance Create n =>
          Create ('I n) where
@@ -232,8 +231,8 @@ instance Create n =>
             (leP lew lew wsz)
             (vsz + wsz)
             (wsz + wsz)
-            (mkP mkv mkw)
-            (mkP mkw mkw)
+            (\c -> mkP c (mkv id) mkw)
+            (mkP id mkw mkw)
 
 type Creatable n = Create (ToBinary n)
 
@@ -345,7 +344,7 @@ fromList = evalSource (create (Source uncons')) where
   uncons' f (x:xs) = f (Just x) xs
 
 newtype Upd a =
-  Upd (∀ c. (a -> (Int,Int) -> c) -> (Int,Int) -> c)
+  Upd (∀ c. (a -> Int -> c) -> Int -> c)
 
 instance Functor Upd where
   fmap f (Upd m) = Upd (\t -> m (t . f))
@@ -361,12 +360,8 @@ instance Applicative Upd where
 ones :: (Semiring a) => Int -> Upd a
 ones n =
     Upd
-        (\f (curcol,col) ->
-              if curcol == col
-                  then f one (curcol + 1, col)
-                  else if curcol == (n - 1)
-                           then f zero (0, col + 1)
-                           else f zero (curcol + 1, col))
+        (\f col -> if col == 0 then f one n else f zero (col-1))
 
-evalUpd :: (Int,Int) -> Upd a -> a
-evalUpd x (Upd f) = f const x
+
+evalUpd ::  Upd a -> a
+evalUpd (Upd f) = f const 0

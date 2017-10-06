@@ -8,15 +8,18 @@ import           Data.Square
 -- import           Control.Monad
 
 import Data.Foldable
+import Data.Semiring
 
 main :: IO ()
 main =
     defaultMain
         [ bgroup "fromList"
-          [ bench "8" $ nf (maybe [] toList . fromList @ 8) ([1..] :: [Int])
-          , bench "16" $ nf (maybe [] toList . fromList @ 16) ([1..] :: [Int])
-          , bench "60" $ nf (maybe [] toList . fromList @ 60) ([1..] :: [Int])
+          [ bench "60" $ nf (maybe [] toList . fromList @ 60) ([1..] :: [Int])
           , bench "100" $ nf (maybe [] toList . fromList @ 100) ([1..] :: [Int])
+          ]
+        , bgroup "ones"
+          [ bench "60" $ nf (\() -> toList (one :: Square 60 Int)) ()
+          , bench "100" $ nf (\() -> toList (one :: Square 100 Int)) ()
           ]
         ]
 
