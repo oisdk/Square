@@ -4,7 +4,7 @@ packages:
 - '.'
 
 extra-deps:
-  - semiring-num-0.6.0.0
+  - semiring-num-1.2.0.0
 
 flags: {}
 

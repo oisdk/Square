@@ -137,7 +137,7 @@ rows = go (flip (foldr (:))) . getSquare
     go
         :: (Foldable w, Foldable v, Functor v, Functor w)
         => (v a -> [a] -> [a]) -> Square_ n v w a -> [[a]]
-    go f (Zero _ x) = toList (fmap (`f` []) x)
+    go f (Zero _ x) = foldr (\e a -> f e [] : a) [] x
     go f (Even s) = go f s
     go f (Odd s) = go g s
       where
@@ -150,6 +150,9 @@ ithRow i fs (Square s) = fmap Square (go id fs s) where
   go k f (Even x) = go (k . Even) f x
   go k f (Odd x) = go (k . Odd) f x
 
+-- |
+-- >>> fmap cols (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
+-- Just [[1,3],[2,4]]
 cols :: Square n a -> [[a]]
 cols = go . getSquare
   where
@@ -157,25 +160,27 @@ cols = go . getSquare
         :: (Foldable v, Foldable w, Applicative v, Applicative w)
         => Square_ n v w a -> [[a]]
     go (Zero _ x) =
-        toList (foldr (liftA2 mappend . fmap pure) (pure mempty) x)
+        foldr (foldr f (const [])) (repeat []) x
     go (Even s) = go s
     go (Odd s) = go s
-
-mulM
-    :: Semiring a
-    => Square n a -> Square n a -> [[a]]
-mulM x y = fmap f (rows x)
-  where
-    f r = fmap (g r) c
-    c = cols y
-    g rs cs = add (zipWith (<.>) rs cs)
+    f e a (x:xs) = (e:x) : a xs
+    f _ _ [] = []
 
 mulMat
-    :: (Semiring a, Create (ToBinary n))
+    :: Semiring a
     => Square n a -> Square n a -> Square n a
-mulMat x y =
-    let Just res = (fromList . fold)  (mulM x y)
-    in res
+mulMat (Square x') (Square y') = Square (go x' y')
+  where
+    go
+        :: (Applicative v
+           ,Applicative w
+           ,Traversable v
+           ,Traversable w
+           ,Semiring a)
+        => Square_ n v w a -> Square_ n v w a -> Square_ n v w a
+    go (Even x) (Even y) = Even (go x y)
+    go (Odd x) (Odd y) = Odd (go x y)
+    go (Zero lev x) (Zero _ y) = Zero lev (getMatrix (Matrix x <.> Matrix y))
 
 instance Create (ToBinary n) =>
          Applicative (Square n) where
