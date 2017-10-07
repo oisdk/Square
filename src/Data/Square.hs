@@ -16,15 +16,23 @@
 {-# LANGUAGE ConstraintKinds #-}
 
 module Data.Square
-  (Square
-  ,rows
-  ,cols
+  ( -- * The Square type
+   Square
+  ,Creatable
+    -- * Creation
   ,fromList
   ,create
+  ,replicate
+  ,unfold
+  ,unfoldMay
+   -- * Modification
   ,alterF
+   -- * Conversion
+  ,rows
+  ,cols
+   -- * Indexing
   ,(!)
-  ,ithRow
-  ,Creatable)
+  ,ithRow)
   where
 
 import Control.Applicative
@@ -36,27 +44,38 @@ import Data.Monoid hiding (Product(..))
 import Data.Proxy
 import Data.Foldable
 import GHC.TypeLits
-
+import Control.DeepSeq
 import Data.Semiring
+
+import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XDataKinds
 
 data Binary = Z | O Binary | I Binary
 
-type family Even (n :: Nat) (true :: k) (false :: k) :: k where
-  Even 0 true false = true
-  Even 1 true false = false
-  Even n true false = Even (n-2) true false
+type family EnclosedBy (p :: Nat) (n :: Nat) :: Nat where
+    EnclosedBy p n = EnclosedBy' (CmpNat (2 ^ p) n) p n
 
-type family Half (n :: Nat) :: Nat where
-  Half 0 = 0
-  Half 1 = 0
-  Half n = Half (n-2) + 1
+type family EnclosedBy' (cmp :: Ordering) (p :: Nat) (n :: Nat) :: Nat where
+    EnclosedBy' 'GT p n = p
+    EnclosedBy' 'EQ p n = EnclosedBy (p + 1) n
+    EnclosedBy' 'LT p n = EnclosedBy (p + 1) n
+
+type family ToBinary' (p :: Nat) (n :: Nat) :: Binary where
+    ToBinary' 0 n = 'Z
+    ToBinary' p n = ToBinary'' (2 ^ (p - 1)) p n
+
+type family ToBinary'' (below :: Nat) (p :: Nat) (n :: Nat) :: Binary where
+    ToBinary'' below p n = ToBinary''' below (CmpNat n below) p n
+
+type family ToBinary''' (below :: Nat) (curr :: Ordering) (p :: Nat) (n :: Nat) :: Binary where
+    ToBinary''' below 'GT p n = 'I (ToBinary' (p-1) (n - below))
+    ToBinary''' below 'EQ p n = 'I (ToBinary' (p-1) (n - below))
+    ToBinary''' below 'LT p n = 'O (ToBinary' (p-1) n)
 
 type family ToBinary (n :: Nat) :: Binary where
-  ToBinary 0 = 'Z
-  ToBinary n = (Even n 'O 'I) (ToBinary (Half n))
+    ToBinary n = ToBinary' (EnclosedBy 0 n) n
 
 -- | This type represents a square matrix. In the form:
 --
@@ -68,7 +87,7 @@ type family ToBinary (n :: Nat) :: Binary where
 --
 -- > data Square_ n v w a =
 -- >    Zero (v (v a))
--- >  | Even (Square_      v     (Product w w) a)
+-- >  | Even (Square_          v    (Product w w) a)
 -- >  | Odd  (Square_ (Product v w) (Product w w) a)
 --
 -- The extra field in the @Zero@ branch is a function which, when
@@ -90,6 +109,24 @@ data Square_ n v w a where
 deriving instance (Functor v, Functor w) => Functor (Square_ n v w)
 deriving instance (Foldable v, Foldable w) => Foldable (Square_ n v w)
 deriving instance (Traversable v, Traversable w) => Traversable (Square_ n v w)
+
+data TravSeq a = TravSeq
+
+instance Functor TravSeq where
+    fmap _ TravSeq = TravSeq
+
+instance Applicative TravSeq where
+    pure x = x `seq` TravSeq
+    TravSeq <*> TravSeq = TravSeq
+    TravSeq *> TravSeq = TravSeq
+    TravSeq <* TravSeq = TravSeq
+
+mkTravSeq :: NFData a => a -> TravSeq a
+mkTravSeq x = rnf x `seq` TravSeq
+
+instance NFData a => NFData (Square n a) where
+    rnf s = case traverse mkTravSeq s of
+      TravSeq -> ()
 
 -- |
 -- >>> fmap rows (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
@@ -159,10 +196,11 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) =>
          Semiring (Square n a) where
     (<.>) = mulMat
     (<+>) = liftA2 (<+>)
-    one =
-        evalUpd
-            (create (ones (fromInteger $ natVal (Proxy :: Proxy n))))
-    zero = runIdentity (create (Identity zero))
+    one = unfold f 0 where
+      f 0 = (one, n)
+      f col = (zero, col-1)
+      n = fromInteger (natVal (Proxy :: Proxy n)) :: Int
+    zero = replicate zero
 
 -- | The 'create_' function is really two functions combined into one:
 -- a normal creation function, with the signature:
@@ -188,11 +226,33 @@ mkP
 mkP k = (liftA2.liftA2) (\x y -> k (Pair x y))
 
 -- | Creates a square of side length @n@ from some applicative.
+--
 -- >>> create (Just 'a') :: Maybe (Square 1 Char)
-  -- Just ["a"]
-create :: (Applicative f, Create (ToBinary n)) => f a -> f (Square n a)
+-- Just ["a"]
+create :: (Applicative f, Creatable n) => f a -> f (Square n a)
 create =
     create_ Square leE leI 0 1 (\k -> (const . pure) (k Proxy)) (fmap Identity)
+{-# SPECIALIZE create
+    :: Create (ToBinary n)
+    => MaybeState s a
+    -> MaybeState s (Square n a) #-}
+{-# SPECIALIZE create
+    :: Create (ToBinary n)
+    => State s a
+    -> State s (Square n a) #-}
+{-# SPECIALIZE create
+    :: Create (ToBinary n)
+    => Identity a
+    -> Identity (Square n a) #-}
+
+replicate :: Creatable n => a -> Square n a
+replicate x = runIdentity (create (Identity x))
+
+unfold :: Creatable n => (b -> (a, b)) -> b -> Square n a
+unfold f = evalState (create (State f))
+
+unfoldMay :: Creatable n => (b -> Maybe (a, b)) -> b -> Maybe (Square n a)
+unfoldMay f = evalMaybeState (create (MaybeState f))
 
 class Create (n :: Binary)  where
     create_
@@ -209,6 +269,39 @@ class Create (n :: Binary)  where
 
 instance Create 'Z where
     create_ k lev _ _ _ mkv _ = mkv (k . Zero lev) . mkv id
+    {-# INLINE create_ #-}
+    {-# SPECIALIZE create_
+        :: (Square_ 'Z v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> State s b -> State s d)
+        -> (forall b. State s b -> State s (w b))
+        -> State s a
+        -> State s c #-}
+
+    {-# SPECIALIZE create_
+        :: (Square_ 'Z v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
+        -> (forall b. MaybeState s b -> MaybeState s (w b))
+        -> MaybeState s a
+        -> MaybeState s c #-}
+
+    {-# SPECIALIZE create_
+        :: (Square_ 'Z v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
+        -> (forall b. Identity b -> Identity (w b))
+        -> Identity a
+        -> Identity c #-}
 
 instance Create n =>
          Create ('O n) where
@@ -221,6 +314,42 @@ instance Create n =>
             (wsz + wsz)
             mkv
             (mkP id mkw mkw)
+    {-# INLINE create_ #-}
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('O n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> State s b -> State s d)
+        -> (forall b. State s b -> State s (w b))
+        -> State s a
+        -> State s c #-}
+
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('O n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
+        -> (forall b. MaybeState s b -> MaybeState s (w b))
+        -> MaybeState s a
+        -> MaybeState s c #-}
+
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('O n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
+        -> (forall b. Identity b -> Identity (w b))
+        -> Identity a
+        -> Identity c #-}
 
 instance Create n =>
          Create ('I n) where
@@ -233,6 +362,42 @@ instance Create n =>
             (wsz + wsz)
             (\c -> mkP c (mkv id) mkw)
             (mkP id mkw mkw)
+    {-# INLINE create_ #-}
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('I n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> State s b -> State s d)
+        -> (forall b. State s b -> State s (w b))
+        -> State s a
+        -> State s c #-}
+
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('I n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
+        -> (forall b. MaybeState s b -> MaybeState s (w b))
+        -> MaybeState s a
+        -> MaybeState s c #-}
+
+    {-# SPECIALIZE create_
+        :: Create n
+        => (Square_ ('I n) v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
+        -> (forall b. Identity b -> Identity (w b))
+        -> Identity a
+        -> Identity c #-}
 
 type Creatable n = Create (ToBinary n)
 
@@ -318,48 +483,54 @@ instance Show a => Show (Square n a) where
 -- fromList
 ------------------------------------------------------------------------
 
-newtype Source s a =
-  Source (∀ c. (Maybe a -> [s] -> c) -> [s] -> c)
+newtype State s a = State (s -> (a, s))
 
-instance Functor (Source s) where
-  fmap f (Source m) = Source (\t -> m (t . fmap f))
-  {-# INLINABLE fmap #-}
+instance Functor (State s) where
+    fmap f (State r) =
+        State (\s -> case r s of (x,s') -> s' `seq` (f x, s'))
+    {-# INLINABLE fmap #-}
 
-instance Applicative (Source s) where
-  pure x = Source (\t -> t (pure x))
-  {-# INLINABLE pure #-}
-  Source fs <*> Source xs =
-    Source (\t -> fs (\f -> xs (t . (<*>) f)))
-  {-# INLINABLE (<*>) #-}
+instance Applicative (State s) where
+    pure x = State (\s -> (x, s))
+    {-# INLINABLE pure #-}
+    State fs <*> State xs = State (\s -> case fs s of
+                                      (f, s') -> case xs s' of
+                                        (x, s'') -> s'' `seq` (f x, s''))
+    {-# INLINABLE (<*>) #-}
 
-evalSource :: Source s a -> [s] -> Maybe a
-evalSource (Source x) = x const
-{-# INLINABLE evalSource #-}
+evalState :: State s a -> s -> a
+evalState (State r) s = case r s of
+  (x, _) -> x
 
-fromList :: Create (ToBinary n) => [a] -> Maybe (Square n a)
-fromList = evalSource (create (Source uncons')) where
-  uncons' f [] = f Nothing []
-  uncons' f (x:xs) = f (Just x) xs
+newtype MaybeState s a = MaybeState (s -> Maybe (a, s))
 
-newtype Upd a =
-  Upd (∀ c. (a -> Int -> c) -> Int -> c)
+instance Functor (MaybeState s) where
+    fmap f (MaybeState r) =
+        MaybeState
+            (\s ->
+                  case r s of
+                      Just (x,s') -> s' `seq` Just (f x, s')
+                      Nothing -> Nothing)
+    {-# INLINABLE fmap #-}
 
-instance Functor Upd where
-  fmap f (Upd m) = Upd (\t -> m (t . f))
-  {-# INLINABLE fmap #-}
+instance Applicative (MaybeState s) where
+    pure x = MaybeState (\s -> Just (x, s))
+    MaybeState fs <*> MaybeState xs =
+        MaybeState
+            (\s ->
+                  case fs s of
+                      Nothing -> Nothing
+                      Just (f,s') ->
+                          case xs s' of
+                              Nothing -> Nothing
+                              Just (x,s'') -> s'' `seq` Just (f x, s''))
 
-instance Applicative Upd where
-  pure x = Upd (\t -> t x)
-  {-# INLINABLE pure #-}
-  Upd fs <*> Upd xs =
-    Upd (\t -> fs (\f -> xs (t . f)))
-  {-# INLINABLE (<*>) #-}
+evalMaybeState :: MaybeState s a -> s -> Maybe a
+evalMaybeState (MaybeState r) s = case r s of
+  Nothing -> Nothing
+  Just (x,_) -> Just x
 
-ones :: (Semiring a) => Int -> Upd a
-ones n =
-    Upd
-        (\f col -> if col == 0 then f one n else f zero (col-1))
-
-
-evalUpd ::  Upd a -> a
-evalUpd (Upd f) = f const 0
+fromList :: Creatable n => [a] -> Maybe (Square n a)
+fromList = unfoldMay uncons' where
+  uncons' [] = Nothing
+  uncons' (x:xs) = Just (x,xs)
