@@ -32,7 +32,8 @@ module Data.Square
   ,cols
    -- * Indexing
   ,(!)
-  ,ithRow)
+  ,row
+  ,col)
   where
 
 import Control.Applicative
@@ -47,10 +48,19 @@ import GHC.TypeLits
 import Control.DeepSeq
 import Data.Semiring
 
+import Data.Type.Equality
+
 import Prelude hiding (replicate)
 
 -- $setup
 -- >>> :set -XDataKinds
+
+
+-- Some type families for binary numbers. The convoluted methods are
+-- because we don't have type-level division, and the hand-implemented
+-- version blows the typechecker's stack with anything bigger than 200.
+-- We do have type-level exponentiation, though, making these methods
+-- viable.
 
 data Binary = Z | O Binary | I Binary
 
@@ -77,6 +87,21 @@ type family ToBinary''' (b :: Binary) (below :: Nat) (curr :: Ordering) (p :: Na
 type family ToBinary (n :: Nat) :: Binary where
     ToBinary n = ToBinary' 'Z (EnclosedBy 0 n) n
 
+-- some type-level unit tests
+
+_toBinaryTests :: ()
+_toBinaryTests = () where
+  _one :: ToBinary 1 :~: 'I 'Z
+  _one = Refl
+  _zero :: ToBinary 0 :~: 'Z
+  _zero = Refl
+  _two :: ToBinary 2 :~: 'O ('I 'Z)
+  _two = Refl
+  _six :: ToBinary 6 :~: 'O ('I ('I 'Z))
+  _six = Refl
+  _sixHundred :: ToBinary 600 :~: 'O ('O ('O ('I ('I ('O ('I ('O ('O ('I 'Z)))))))))
+  _sixHundred = Refl
+
 -- | This type represents a square matrix. In the form:
 --
 -- > Square_ Proxy Identity a
@@ -102,9 +127,9 @@ newtype Square n a =
 type Traversal s a = ∀ f. Applicative f => (a -> f a) -> s -> f s
 
 data Square_ n v w a where
-  Zero :: (∀ b. Int -> Traversal (v b) b) -> v (v a) -> Square_ 'Z v w a
-  Even :: Square_ n          v    (Product w w) a   -> Square_ ('O n) v w a
-  Odd  :: Square_ n (Product v w) (Product w w) a   -> Square_ ('I n) v w a
+        Zero :: (forall b . Int -> Traversal (v b) b) -> v (v a) -> Square_ 'Z v w a
+        Even :: Square_ n v (Product w w) a -> Square_ ('O n) v w a
+        Odd :: Square_ n (Product v w) (Product w w) a -> Square_ ('I n) v w a
 
 deriving instance (Functor v, Functor w) => Functor (Square_ n v w)
 deriving instance (Foldable v, Foldable w) => Foldable (Square_ n v w)
@@ -143,12 +168,25 @@ rows = go (flip (foldr (:))) . getSquare
       where
         g (Pair vs ws) = f vs . flip (foldr (:)) ws
 
-ithRow :: Int -> Traversal (Square n a) a
-ithRow i fs (Square s) = fmap Square (go id fs s) where
-  go :: (Traversable v, Traversable w, Applicative f) => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
-  go k f (Zero lev vv) = fmap (k . Zero lev) ((lev i . traverse) f vv)
-  go k f (Even x) = go (k . Even) f x
-  go k f (Odd x) = go (k . Odd) f x
+row :: Int -> Traversal (Square n a) a
+row i fs (Square s) = go Square fs s
+  where
+    go
+        :: (Traversable v, Traversable w, Applicative f)
+        => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
+    go k f (Zero lev vv) = fmap (k . Zero lev) ((lev i . traverse) f vv)
+    go k f (Even x) = go (k . Even) f x
+    go k f (Odd x) = go (k . Odd) f x
+
+col :: Int -> Traversal (Square n a) a
+col i fs (Square s) = go Square fs s
+  where
+    go
+        :: (Traversable v, Traversable w, Applicative f)
+        => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
+    go k f (Zero lev vv) = fmap (k . Zero lev) ((traverse . lev i) f vv)
+    go k f (Even x) = go (k . Even) f x
+    go k f (Odd x) = go (k . Odd) f x
 
 -- |
 -- >>> fmap cols (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
@@ -193,7 +231,7 @@ instance Create (ToBinary n) =>
             :: forall m v w a b.
                (Applicative v, Applicative w)
             => Square_ m v w (a -> b) -> Square_ m v w a -> Square_ m v w b
-        go (Zero _ vx) (Zero ly vy) = Zero ly (liftA2 (<*>) vx vy)
+        go (Zero ly vx) (Zero _ vy) = Zero ly (liftA2 (<*>) vx vy)
         go (Even f) (Even x) = Even (go f x)
         go (Odd f) (Odd x) = Odd (go f x)
 
@@ -203,7 +241,7 @@ instance (Semiring a, Create (ToBinary n), KnownNat n) =>
     (<+>) = liftA2 (<+>)
     one = unfold f 0 where
       f 0 = (one, n)
-      f col = (zero, col-1)
+      f c = (zero, c-1)
       n = fromInteger (natVal (Proxy :: Proxy n)) :: Int
     zero = replicate zero
 
