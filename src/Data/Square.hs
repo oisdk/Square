@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE UnicodeSyntax #-}
@@ -8,7 +7,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -18,7 +16,7 @@
 module Data.Square
   ( -- * The Square type
    Square
-  ,Creatable
+  ,KnownSquare
     -- * Creation
   ,fromList
   ,create
@@ -43,12 +41,11 @@ import Data.Functor.Identity
 import Data.Functor.Product
 import Data.Monoid hiding (Product(..))
 import Data.Proxy
-import Data.Foldable
+import Data.Foldable hiding (traverse_)
 import GHC.TypeLits
-import Control.DeepSeq
 import Data.Semiring
 
-import Data.Type.Equality
+import Data.Square.Binary
 
 import Prelude hiding (replicate)
 
@@ -56,57 +53,8 @@ import Prelude hiding (replicate)
 -- >>> :set -XDataKinds
 
 
--- Some type families for binary numbers. The convoluted methods are
--- because we don't have type-level division, and the hand-implemented
--- version blows the typechecker's stack with anything bigger than 200.
--- We do have type-level exponentiation, though, making these methods
--- viable.
 
-data Binary = Z | O Binary | I Binary
-
-type family EnclosedBy (p :: Nat) (n :: Nat) :: Nat where
-    EnclosedBy p n = EnclosedBy' (CmpNat (2 ^ p) n) p n
-
-type family EnclosedBy' (cmp :: Ordering) (p :: Nat) (n :: Nat) :: Nat where
-    EnclosedBy' 'GT p n = p
-    EnclosedBy' 'EQ p n = EnclosedBy (p + 1) n
-    EnclosedBy' 'LT p n = EnclosedBy (p + 1) n
-
-type family ToBinary' (b :: Binary) (p :: Nat) (n :: Nat) :: Binary where
-    ToBinary' b 0 n = b
-    ToBinary' b p n = ToBinary'' b (2 ^ (p - 1)) p n
-
-type family ToBinary'' (b :: Binary) (below :: Nat) (p :: Nat) (n :: Nat) :: Binary where
-    ToBinary'' b below p n = ToBinary''' b below (CmpNat n below) p n
-
-type family ToBinary''' (b :: Binary) (below :: Nat) (curr :: Ordering) (p :: Nat) (n :: Nat) :: Binary where
-    ToBinary''' b below 'GT p n = ToBinary' ('I b) (p-1) (n - below)
-    ToBinary''' b below 'EQ p n = ToBinary' ('I b) (p-1) (n - below)
-    ToBinary''' b below 'LT p n = ToBinary' ('O b) (p-1) n
-
-type family ToBinary (n :: Nat) :: Binary where
-    ToBinary n = ToBinary' 'Z (EnclosedBy 0 n) n
-
--- some type-level unit tests
-
-_toBinaryTests :: ()
-_toBinaryTests = () where
-  _one :: ToBinary 1 :~: 'I 'Z
-  _one = Refl
-  _zero :: ToBinary 0 :~: 'Z
-  _zero = Refl
-  _two :: ToBinary 2 :~: 'O ('I 'Z)
-  _two = Refl
-  _six :: ToBinary 6 :~: 'O ('I ('I 'Z))
-  _six = Refl
-  _sixHundred :: ToBinary 600 :~: 'O ('O ('O ('I ('I ('O ('I ('O ('O ('I 'Z)))))))))
-  _sixHundred = Refl
-
--- | This type represents a square matrix. In the form:
---
--- > Square_ Proxy Identity a
---
--- It is unable to be a non-square. It is adapted from
+-- | A square matrix. Adapted from
 -- <http://www.usma.edu/eecs/SiteAssets/SitePages/Faculty%20Publication%20Documents/Okasaki/icfp99square.pdf Okasaki's>
 -- square matrices:
 --
@@ -114,335 +62,159 @@ _toBinaryTests = () where
 -- >    Zero (v (v a))
 -- >  | Even (Square_          v    (Product w w) a)
 -- >  | Odd  (Square_ (Product v w) (Product w w) a)
---
--- The extra field in the @Zero@ branch is a function which, when
--- given a valid index, produces a Traversal into the element at that
--- position. This could be accomplished without the field, but this
--- way allows sharing of work across repeated access to different
--- indices.
 newtype Square n a =
-  Square { getSquare :: Square_ (ToBinary n) Proxy Identity a
-         } deriving (Functor, Foldable, Traversable, Eq, Ord, Eq1, Ord1)
+  Square (Square_ (ToBinary n) Proxy Identity a)
+
+data Base v a =
+    Base (forall b. Int -> Traversal (v b) b)
+         (v (v a))
+    deriving (Functor,Foldable,Traversable)
+
+type family Square_ n v w where
+    Square_ 'Z v w = Base v
+    Square_ ('O n) v w = Square_ n v (Product w w)
+    Square_ ('I n) v w = Square_ n (Product v w) (Product w w)
 
 type Traversal s a = ∀ f. Applicative f => (a -> f a) -> s -> f s
 
-data Square_ n v w a where
-        Zero :: (forall b . Int -> Traversal (v b) b) -> v (v a) -> Square_ 'Z v w a
-        Even :: Square_ n v (Product w w) a -> Square_ ('O n) v w a
-        Odd :: Square_ n (Product v w) (Product w w) a -> Square_ ('I n) v w a
-
-deriving instance (Functor v, Functor w) => Functor (Square_ n v w)
-deriving instance (Foldable v, Foldable w) => Foldable (Square_ n v w)
-deriving instance (Traversable v, Traversable w) => Traversable (Square_ n v w)
-
-data TravSeq a = TravSeq
-
-instance Functor TravSeq where
-    fmap _ TravSeq = TravSeq
-
-instance Applicative TravSeq where
-    pure x = x `seq` TravSeq
-    TravSeq <*> TravSeq = TravSeq
-    TravSeq *> TravSeq = TravSeq
-    TravSeq <* TravSeq = TravSeq
-
-mkTravSeq :: NFData a => a -> TravSeq a
-mkTravSeq x = rnf x `seq` TravSeq
-
-instance NFData a => NFData (Square n a) where
-    rnf s = case traverse mkTravSeq s of
-      TravSeq -> ()
-
--- |
--- >>> fmap rows (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
--- Just [[1,2],[3,4]]
-rows :: Square n a -> [[a]]
-rows = go (flip (foldr (:))) . getSquare
-  where
-    go
-        :: (Foldable w, Foldable v, Functor v, Functor w)
-        => (v a -> [a] -> [a]) -> Square_ n v w a -> [[a]]
-    go f (Zero _ x) = foldr (\e a -> f e [] : a) [] x
-    go f (Even s) = go f s
-    go f (Odd s) = go g s
-      where
-        g (Pair vs ws) = f vs . flip (foldr (:)) ws
-
-row :: Int -> Traversal (Square n a) a
-row i fs (Square s) = go Square fs s
-  where
-    go
-        :: (Traversable v, Traversable w, Applicative f)
-        => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
-    go k f (Zero lev vv) = fmap (k . Zero lev) ((lev i . traverse) f vv)
-    go k f (Even x) = go (k . Even) f x
-    go k f (Odd x) = go (k . Odd) f x
-
-col :: Int -> Traversal (Square n a) a
-col i fs (Square s) = go Square fs s
-  where
-    go
-        :: (Traversable v, Traversable w, Applicative f)
-        => (Square_ n v w a -> b) -> (a -> f a) -> Square_ n v w a -> f b
-    go k f (Zero lev vv) = fmap (k . Zero lev) ((traverse . lev i) f vv)
-    go k f (Even x) = go (k . Even) f x
-    go k f (Odd x) = go (k . Odd) f x
-
--- |
--- >>> fmap cols (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
--- Just [[1,3],[2,4]]
-cols :: Square n a -> [[a]]
-cols = go . getSquare
-  where
-    go
-        :: (Foldable v, Foldable w, Applicative v, Applicative w)
-        => Square_ n v w a -> [[a]]
-    go (Zero _ x) =
-        foldr (foldr f (const [])) (repeat []) x
-    go (Even s) = go s
-    go (Odd s) = go s
-    f e a (x:xs) = (e:x) : a xs
-    f _ _ [] = []
-
-mulMat
-    :: Semiring a
-    => Square n a -> Square n a -> Square n a
-mulMat (Square x') (Square y') = Square (go x' y')
-  where
-    go
-        :: (Applicative v
-           ,Applicative w
-           ,Traversable v
-           ,Traversable w
-           ,Semiring a)
-        => Square_ n v w a -> Square_ n v w a -> Square_ n v w a
-    go (Even x) (Even y) = Even (go x y)
-    go (Odd x) (Odd y) = Odd (go x y)
-    go (Zero lev x) (Zero _ y) = Zero lev (getMatrix (Matrix x <.> Matrix y))
-
-instance Create (ToBinary n) =>
-         Applicative (Square n) where
-    pure =
-        (coerce :: (Identity a -> Identity (Square n a)) -> a -> Square n a)
-            create
-    Square fs <*> Square xs = Square (go fs xs)
-      where
-        go
-            :: forall m v w a b.
-               (Applicative v, Applicative w)
-            => Square_ m v w (a -> b) -> Square_ m v w a -> Square_ m v w b
-        go (Zero ly vx) (Zero _ vy) = Zero ly (liftA2 (<*>) vx vy)
-        go (Even f) (Even x) = Even (go f x)
-        go (Odd f) (Odd x) = Odd (go f x)
-
-instance (Semiring a, Create (ToBinary n), KnownNat n) =>
-         Semiring (Square n a) where
-    (<.>) = mulMat
-    (<+>) = liftA2 (<+>)
-    one = unfold f 0 where
-      f 0 = (one, n)
-      f c = (zero, c-1)
-      n = fromInteger (natVal (Proxy :: Proxy n)) :: Int
-    zero = replicate zero
-
--- | The 'create_' function is really two functions combined into one:
--- a normal creation function, with the signature:
---
--- >    (∀ b. b -> v b)
--- > -> (∀ b. b -> w b)
--- > -> a
--- > -> Int
--- > -> Square_ n v w a
---
--- And an indexing function for a lens, with the signature:
---
--- >    (∀ b. Int -> Traversal (v b) b)
--- > -> (∀ b. Int -> Traversal (w b) b)
--- > -> Int -> Int
---
--- building the indexing function allows for sharing between access
--- of different indices.
-
-mkP
-  :: Applicative f
-  => (Product v w a -> b) -> (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f b
-mkP k = (liftA2.liftA2) (\x y -> k (Pair x y))
+type KnownSquare n = KnownBinary (ToBinary n)
 
 -- | Creates a square of side length @n@ from some applicative.
 --
 -- >>> create (Just 'a') :: Maybe (Square 1 Char)
 -- Just ["a"]
-create :: (Applicative f, Creatable n) => f a -> f (Square n a)
-create =
-    create_ Square leE leI 0 1 (\k -> (const . pure) (k Proxy)) (fmap Identity)
-{-# SPECIALIZE create
-    :: Create (ToBinary n)
-    => MaybeState s a
-    -> MaybeState s (Square n a) #-}
-{-# SPECIALIZE create
-    :: Create (ToBinary n)
-    => State s a
-    -> State s (Square n a) #-}
-{-# SPECIALIZE create
-    :: Create (ToBinary n)
-    => Identity a
-    -> Identity (Square n a) #-}
-
-replicate :: Creatable n => a -> Square n a
-replicate x = runIdentity (create (Identity x))
-
-unfold :: Creatable n => (b -> (a, b)) -> b -> Square n a
-unfold f = evalState (create (State f))
-
-unfoldMay :: Creatable n => (b -> Maybe (a, b)) -> b -> Maybe (Square n a)
-unfoldMay f = evalMaybeState (create (MaybeState f))
-
-class Create (n :: Binary)  where
-    create_
-        :: Applicative f
-        => (Square_ n v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> f b -> f d)
-        -> (forall b. f b -> f (w b))
-        -> f a
-        -> f c
-
-instance Create 'Z where
-    create_ k lev _ _ _ mkv _ = mkv (k . Zero lev) . mkv id
-    {-# INLINE create_ #-}
-    {-# SPECIALIZE create_
-        :: (Square_ 'Z v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> State s b -> State s d)
-        -> (forall b. State s b -> State s (w b))
-        -> State s a
-        -> State s c #-}
-
-    {-# SPECIALIZE create_
-        :: (Square_ 'Z v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
-        -> (forall b. MaybeState s b -> MaybeState s (w b))
-        -> MaybeState s a
-        -> MaybeState s c #-}
-
-    {-# SPECIALIZE create_
-        :: (Square_ 'Z v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
-        -> (forall b. Identity b -> Identity (w b))
-        -> Identity a
-        -> Identity c #-}
-
-instance Create n =>
-         Create ('O n) where
-    create_ k lev lew vsz wsz mkv mkw =
+create :: (Applicative f, KnownSquare n) => f a -> f (Square n a)
+create = go Proxy
+  where
+    go
+        :: (KnownSquare n, Applicative f)
+        => Proxy n -> f a -> f (Square n a)
+    go (_ :: Proxy n) =
         create_
-            (k . Even)
-            lev
-            (leP lew lew wsz)
-            vsz
-            (wsz + wsz)
-            mkv
-            (mkP id mkw mkw)
-    {-# INLINE create_ #-}
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('O n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> State s b -> State s d)
-        -> (forall b. State s b -> State s (w b))
-        -> State s a
-        -> State s c #-}
+            (Proxy :: Proxy (ToBinary n))
+            Proxy
+            Square
+            leE
+            leI
+            0
+            1
+            (\k ->
+                  (const . pure) (k Proxy))
+            (fmap Identity)
 
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('O n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
-        -> (forall b. MaybeState s b -> MaybeState s (w b))
-        -> MaybeState s a
-        -> MaybeState s c #-}
+instance KnownSquare n =>
+         Functor (Square n) where
+    fmap f (Square xs) =
+        Square
+            (fmap_
+                 (Proxy :: Proxy (ToBinary n))
+                 (Proxy :: Proxy Proxy)
+                 (Proxy :: Proxy Identity)
+                 f
+                 xs)
 
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('O n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
-        -> (forall b. Identity b -> Identity (w b))
-        -> Identity a
-        -> Identity c #-}
+instance KnownSquare n =>
+         Foldable (Square n) where
+    foldr f b (Square xs) =
+        foldr_
+            (Proxy :: Proxy (ToBinary n))
+            (Proxy :: Proxy Proxy)
+            (Proxy :: Proxy Identity)
+            f
+            b
+            xs
 
-instance Create n =>
-         Create ('I n) where
-    create_ k lev lew vsz wsz mkv mkw =
-        create_
-            (k . Odd)
-            (leP lev lew vsz)
-            (leP lew lew wsz)
-            (vsz + wsz)
-            (wsz + wsz)
-            (\c -> mkP c (mkv id) mkw)
-            (mkP id mkw mkw)
-    {-# INLINE create_ #-}
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('I n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> State s b -> State s d)
-        -> (forall b. State s b -> State s (w b))
-        -> State s a
-        -> State s c #-}
+instance KnownSquare n =>
+         Traversable (Square n) where
+    traverse f (Square xs) =
+        Square <$>
+        traverse_
+            (Proxy :: Proxy (ToBinary n))
+            (Proxy :: Proxy Proxy)
+            (Proxy :: Proxy Identity)
+            f
+            xs
 
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('I n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> MaybeState s b -> MaybeState s d)
-        -> (forall b. MaybeState s b -> MaybeState s (w b))
-        -> MaybeState s a
-        -> MaybeState s c #-}
+instance (Show a, KnownSquare n) => Show (Square n a) where
+    showsPrec n = showsPrec n . rows
 
-    {-# SPECIALIZE create_
-        :: Create n
-        => (Square_ ('I n) v w a -> c)
-        -> (forall b. Int -> Traversal (v b) b)
-        -> (forall b. Int -> Traversal (w b) b)
-        -> Int
-        -> Int
-        -> (forall b d. (v b -> d) -> Identity b -> Identity d)
-        -> (forall b. Identity b -> Identity (w b))
-        -> Identity a
-        -> Identity c #-}
+instance KnownSquare n => Eq1 (Square n) where
+    liftEq eq xs ys = EQ == liftCompare (\x y -> if eq x y then EQ else LT) xs ys
 
-type Creatable n = Create (ToBinary n)
+instance KnownSquare n =>
+         Ord1 (Square n) where
+    liftCompare cmp (Square x) (Square y) =
+        liftCompare_
+            (Proxy :: Proxy (ToBinary n))
+            (Proxy :: Proxy Proxy)
+            (Proxy :: Proxy Identity)
+            cmp
+            x
+            y
+
+instance (KnownSquare n, Eq a) => Eq (Square n a) where
+    (==) = liftEq (==)
+
+instance (KnownSquare n, Ord a) => Ord (Square n a) where
+    compare = liftCompare compare
+
+instance KnownSquare n =>
+         Applicative (Square n) where
+    pure = replicate
+    (<*>) = liftA2Sq ($)
+
+liftA2Sq
+    :: KnownSquare n
+    => (a -> b -> c) -> Square n a -> Square n b -> Square n c
+liftA2Sq f (Square xs :: Square n a) (Square ys) =
+    Square
+        (apply_
+             (Proxy :: Proxy (ToBinary n))
+             (Proxy :: Proxy Proxy)
+             (Proxy :: Proxy Identity)
+             f
+             xs
+             ys)
+
+instance (KnownSquare n, Semiring a, KnownNat n) =>
+         Semiring (Square n a) where
+    zero = replicate zero
+    one = unfold f 0
+      where
+        n = fromEnum (natVal (Proxy :: Proxy n))
+        f 0 = (one, n)
+        f m = (zero, m - 1)
+    (<+>) = liftA2Sq (<+>)
+    Square xs <.> Square ys =
+        Square
+            (mul_
+                 (Proxy :: Proxy (ToBinary n))
+                 (Proxy :: Proxy Proxy)
+                 (Proxy :: Proxy Identity)
+                 xs
+                 ys)
+
+
+rows :: KnownSquare n => Square n a -> [[a]]
+rows (Square xs :: Square n a) =
+    rows_
+        (Proxy :: Proxy (ToBinary n))
+        (Proxy :: Proxy Proxy)
+        (Proxy :: Proxy Identity)
+        xs
+
+cols :: KnownSquare n => Square n a -> [[a]]
+cols (Square xs :: Square n a) =
+    cols_
+        (Proxy :: Proxy (ToBinary n))
+        (Proxy :: Proxy Proxy)
+        (Proxy :: Proxy Identity)
+        xs
+
+mkP
+  :: Applicative f
+  => (Product v w a -> b) -> (f a -> f (v a)) -> (f a -> f (w a)) -> f a -> f b
+mkP k = (liftA2.liftA2) (\x y -> k (Pair x y))
 
 -- The indexing 'Traversal' for 'Proxy'. If this is called, it means an
 -- invalid index has been given. This is caught earlier with the
@@ -455,7 +227,7 @@ leI :: Int -> Traversal (Identity a) a
 leI 0 f (Identity x) = Identity <$> f x
 leI _ _ i = pure i
 
--- The indexing 'Traversal for a pair.
+-- The indexing 'Traversal for a pair
 leP :: (Int -> Traversal (v a) a)
     -> (Int -> Traversal (w a) a)
     -> Int -> Int -> Traversal (Product v w a) a
@@ -463,68 +235,367 @@ leP lev lew nv i f (Pair v w)
   | i < nv    = flip Pair w <$> lev i f v
   | otherwise = Pair v <$> lew (i-nv) f w
 
-------------------------------------------------------------------------
--- Indexing
-------------------------------------------------------------------------
 
-ix_ :: (Int, Int) -> Traversal (Square_ n v w a) a
-ix_ (i,j) (f :: a -> f a) = ix' id where
-  ix' :: ∀ b n v w. (Square_ n v w a -> b) -> Square_ n v w a -> f b
-  ix' k (Zero lev vv) = (k . Zero lev) <$> (lev i . lev j) f vv
-  ix' k (Even      m) = ix' (k . Even) m
-  ix' k (Odd       m) = ix' (k . Odd) m
+class KnownBinary (n :: Binary)  where
+    create_
+        :: Applicative f
+        => Proxy n
+        -> Proxy w
+        -> (Square_ n v w a -> c)
+        -> (forall b. Int -> Traversal (v b) b)
+        -> (forall b. Int -> Traversal (w b) b)
+        -> Int
+        -> Int
+        -> (forall b d. (v b -> d) -> f b -> f d)
+        -> (forall b. f b -> f (w b))
+        -> f a
+        -> f c
+    ix_
+        :: Applicative f
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (Square_ n v w a -> b)
+        -> Int
+        -> Int
+        -> (a -> f a)
+        -> Square_ n v w a
+        -> f b
+    row_
+        :: (Applicative f, Traversable v, Traversable w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (Square_ n v w a -> b)
+        -> Int
+        -> (a -> f a)
+        -> Square_ n v w a
+        -> f b
+    col_
+        :: (Applicative f, Traversable v, Traversable w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (Square_ n v w a -> b)
+        -> Int
+        -> (a -> f a)
+        -> Square_ n v w a
+        -> f b
+    rows_
+        :: (Foldable v, Foldable w)
+        => Proxy n -> Proxy v -> Proxy w -> Square_ n v w a -> [[a]]
+    cols_
+        :: (Foldable v, Foldable w)
+        => Proxy n -> Proxy v -> Proxy w -> Square_ n v w a -> [[a]]
+    fmap_
+        :: (Functor v, Functor w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (a -> b)
+        -> Square_ n v w a
+        -> Square_ n v w b
+    foldr_
+        :: (Foldable v, Foldable w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (a -> b -> b)
+        -> b
+        -> Square_ n v w a
+        -> b
+    traverse_
+        :: (Traversable v, Traversable w, Applicative f)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (a -> f b)
+        -> Square_ n v w a
+        -> f (Square_ n v w b)
+    liftCompare_
+        :: (Ord1 v, Ord1 w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (a -> b -> Ordering)
+        -> Square_ n v w a
+        -> Square_ n v w b
+        -> Ordering
+    apply_
+        :: (Applicative v, Applicative w)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> (a -> b -> c)
+        -> Square_ n v w a
+        -> Square_ n v w b
+        -> Square_ n v w c
+    mul_
+        :: (Applicative v
+           ,Applicative w
+           ,Traversable v
+           ,Traversable w
+           ,Semiring a)
+        => Proxy n
+        -> Proxy v
+        -> Proxy w
+        -> Square_ n v w a
+        -> Square_ n v w a
+        -> Square_ n v w a
+
+instance KnownBinary 'Z where
+    create_ _ _ k lev _ _ _ mkv _ = mkv (k . Base lev) . mkv id
+    ix_ _ _ _ k i j f (Base lev xs) = k . Base lev <$> (lev i . lev j) f xs
+    row_ _ _ _ k i f (Base lev vv) =
+        fmap (k . Base lev) ((lev i . traverse) f vv)
+    col_ _ _ _ k i f (Base lev vv) =
+        fmap (k . Base lev) ((traverse . lev i) f vv)
+    rows_ _ _ _ (Base _ xs) = foldr ((:) . toList) [] xs
+    cols_ _ _ _ (Base _ xs) = foldr (foldr f (const [])) (repeat []) xs
+      where
+        f e a (y:ys) = (e : y) : a ys
+        f _ _ [] = []
+    fmap_ _ _ _ f (Base lev xs) = Base lev ((fmap.fmap) f xs)
+    foldr_ _ _ _ f b (Base _ xs) = foldr (flip (foldr f)) b xs
+    traverse_ _ _ _ f (Base lev xs) = Base lev <$> (traverse.traverse) f xs
+    liftCompare_ _ _ _ cmp (Base _ xs) (Base _ ys) = liftCompare (liftCompare cmp) xs ys
+    apply_ _ _ _ f (Base lev xs) (Base _ ys) = Base lev (liftA2 (liftA2 f) xs ys)
+    mul_ _ _ _ (Base lev xs) (Base _ ys) = Base lev (getMatrix (Matrix xs <.> Matrix ys))
+    {-# INLINE create_ #-}
+    {-# INLINE ix_ #-}
+    {-# INLINE row_ #-}
+    {-# INLINE col_ #-}
+    {-# INLINE rows_ #-}
+    {-# INLINE cols_ #-}
+    {-# INLINE fmap_ #-}
+    {-# INLINE foldr_ #-}
+    {-# INLINE traverse_ #-}
+    {-# INLINE liftCompare_ #-}
+    {-# INLINE apply_ #-}
+    {-# INLINE mul_ #-}
+
+instance KnownBinary n =>
+         KnownBinary ('O n) where
+    create_ _ (_ :: Proxy w) k lev lew vsz wsz mkv mkw =
+        create_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product w w))
+            k
+            lev
+            (leP lew lew wsz)
+            vsz
+            (wsz + wsz)
+            mkv
+            (mkP id mkw mkw)
+    ix_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        ix_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    row_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        row_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    col_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        col_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    rows_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        rows_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    cols_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        cols_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    fmap_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        fmap_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    foldr_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        foldr_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    traverse_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        traverse_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    liftCompare_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        liftCompare_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    apply_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        apply_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    mul_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        mul_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy v)
+            (Proxy :: Proxy (Product w w))
+    {-# INLINE create_ #-}
+    {-# INLINE ix_ #-}
+    {-# INLINE row_ #-}
+    {-# INLINE col_ #-}
+    {-# INLINE rows_ #-}
+    {-# INLINE cols_ #-}
+    {-# INLINE fmap_ #-}
+    {-# INLINE foldr_ #-}
+    {-# INLINE traverse_ #-}
+    {-# INLINE liftCompare_ #-}
+    {-# INLINE apply_ #-}
+    {-# INLINE mul_ #-}
+
+instance KnownBinary n =>
+         KnownBinary ('I n) where
+    create_ _ _ k lev lew vsz wsz mkv mkw =
+        create_
+            (Proxy :: Proxy n)
+            Proxy
+            k
+            (leP lev lew vsz)
+            (leP lew lew wsz)
+            (vsz + wsz)
+            (wsz + wsz)
+            (\c ->
+                  mkP c (mkv id) mkw)
+            (mkP id mkw mkw)
+    ix_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        ix_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    row_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        row_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    col_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        col_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    rows_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        rows_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    cols_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        cols_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    fmap_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        fmap_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    foldr_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        foldr_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    traverse_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        traverse_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    liftCompare_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        liftCompare_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    apply_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        apply_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    mul_ _ (_ :: Proxy v) (_ :: Proxy w) =
+        mul_
+            (Proxy :: Proxy n)
+            (Proxy :: Proxy (Product v w))
+            (Proxy :: Proxy (Product w w))
+    {-# INLINE create_ #-}
+    {-# INLINE ix_ #-}
+    {-# INLINE row_ #-}
+    {-# INLINE col_ #-}
+    {-# INLINE rows_ #-}
+    {-# INLINE cols_ #-}
+    {-# INLINE fmap_ #-}
+    {-# INLINE foldr_ #-}
+    {-# INLINE traverse_ #-}
+    {-# INLINE liftCompare_ #-}
+    {-# INLINE apply_ #-}
+    {-# INLINE mul_ #-}
+
+
+
+-- ------------------------------------------------------------------------
+-- -- Indexing
+-- ------------------------------------------------------------------------
 
 alterF
-  :: (Applicative f, KnownNat n)
-  => (a -> f a) -> (Int, Int) -> Square n a -> f (Square n a)
+    :: (Applicative f, KnownNat n, KnownSquare n)
+    => (a -> f a) -> (Int, Int) -> Square n a -> f (Square n a)
 alterF f (i,j) s@(Square q :: Square n a)
-  | i <  0 = pure s
-  | j <  0 = pure s
+  | i < 0 = pure s
+  | j < 0 = pure s
   | i >= n = pure s
   | j >= n = pure s
-  | otherwise = Square <$> ix_ (i,j) f q
-  where n = fromInteger (natVal (Proxy :: Proxy n))
+  | otherwise =
+      ix_
+          (Proxy :: Proxy (ToBinary n))
+          (Proxy :: Proxy Proxy)
+          (Proxy :: Proxy Identity)
+          Square
+          i
+          j
+          f
+          q
+  where
+    n = fromInteger (natVal (Proxy :: Proxy n))
 
-(!) :: KnownNat n => Square n a -> (Int, Int) -> Maybe a
+(!) :: (KnownSquare n, KnownNat n) => Square n a -> (Int, Int) -> Maybe a
 s ! i = (getFirst .# getConst) ((`alterF` i) (Const .# First .# Just) s)
 
 infixr 9 .#
 (.#) :: Coercible b c => (b -> c) -> (a -> b) -> a -> c
 (.#) _ = coerce
 
-------------------------------------------------------------------------
--- Eq and Ord
-------------------------------------------------------------------------
+row :: (KnownSquare n) => Int -> Traversal (Square n a) a
+row i f (Square xs :: Square n a) =
+    row_
+        (Proxy :: Proxy (ToBinary n))
+        (Proxy :: Proxy Proxy)
+        (Proxy :: Proxy Identity)
+        Square
+        i
+        f
+        xs
 
-instance (Eq1 v, Eq1 w) =>
-         Eq1 (Square_ n v w) where
-    liftEq eq (Zero _ x) (Zero _ y) = liftEq (liftEq eq) x y
-    liftEq eq (Odd x) (Odd y) = liftEq eq x y
-    liftEq eq (Even x) (Even y) = liftEq eq x y
+col :: (KnownSquare n) => Int -> Traversal (Square n a) a
+col i f (Square xs :: Square n a) =
+    col_
+        (Proxy :: Proxy (ToBinary n))
+        (Proxy :: Proxy Proxy)
+        (Proxy :: Proxy Identity)
+        Square
+        i
+        f
+        xs
 
-instance (Eq1 v, Eq1 w, Eq a) =>
-         Eq (Square_ n v w a) where
-    (==) = eq1
-instance (Ord1 v, Ord1 w, Ord a) =>
-         Ord (Square_ n v w a) where
-    compare = compare1
-
-instance (Ord1 v, Ord1 w) =>
-         Ord1 (Square_ n v w) where
-    liftCompare cmp (Zero _ x) (Zero _ y) = (liftCompare . liftCompare) cmp x y
-    liftCompare cmp (Odd x) (Odd y) = liftCompare cmp x y
-    liftCompare cmp (Even x) (Even y) = liftCompare cmp x y
-
-------------------------------------------------------------------------
--- Show
-------------------------------------------------------------------------
-
-instance Show a => Show (Square n a) where
-  showsPrec n = showsPrec n . rows
-
-------------------------------------------------------------------------
--- fromList
-------------------------------------------------------------------------
+-- ------------------------------------------------------------------------
+-- -- fromList
+-- ------------------------------------------------------------------------
 
 newtype State s a = State (s -> (a, s))
 
@@ -573,7 +644,16 @@ evalMaybeState (MaybeState r) s = case r s of
   Nothing -> Nothing
   Just (x,_) -> Just x
 
-fromList :: Creatable n => [a] -> Maybe (Square n a)
+fromList :: KnownSquare n => [a] -> Maybe (Square n a)
 fromList = unfoldMay uncons' where
   uncons' [] = Nothing
   uncons' (x:xs) = Just (x,xs)
+
+replicate :: KnownSquare n => a -> Square n a
+replicate x = runIdentity (create (Identity x))
+
+unfold :: KnownSquare n => (b -> (a, b)) -> b -> Square n a
+unfold f = evalState (create (State f))
+
+unfoldMay :: KnownSquare n => (b -> Maybe (a, b)) -> b -> Maybe (Square n a)
+unfoldMay f = evalMaybeState (create (MaybeState f))

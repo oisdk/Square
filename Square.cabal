@@ -1,5 +1,5 @@
 name:                Square
-version:             0.2.0.0
+version:             0.3.0.0
 synopsis:            Okasaki's Square matrices with nested types
 description:         Please see README.md
 homepage:            https://github.com/oisdk/Square#readme
@@ -13,6 +13,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Data.Square
+  other-modules:       Data.Square.Binary
   default-language:    Haskell2010
   build-depends:       base >= 4.9 && < 5
                      , semiring-num >= 1.2

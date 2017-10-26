@@ -10,7 +10,7 @@ import           Test.DocTest
 import           Test.QuickCheck
 import           Test.Semiring
 
-instance (Creatable n, Arbitrary a) => Arbitrary (Square n a) where
+instance (KnownSquare n, Arbitrary a) => Arbitrary (Square n a) where
   arbitrary = create arbitrary
 
 instance Testable (Either String a) where
