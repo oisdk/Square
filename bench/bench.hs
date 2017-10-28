@@ -45,17 +45,17 @@ main =
     defaultMain
         [ bgroup
               "fromList"
-              [ fromListAtSize (Proxy :: Proxy 60)
-              , fromListAtSize (Proxy :: Proxy 100)]
+              [ fromListAtSize (Proxy :: Proxy 600)
+              , fromListAtSize (Proxy :: Proxy 1000)]
         , bgroup
               "ones"
-              [ onesAtSize (Proxy :: Proxy 60)
-              , onesAtSize (Proxy :: Proxy 100)]
+              [ onesAtSize (Proxy :: Proxy 600)
+              , onesAtSize (Proxy :: Proxy 1000)]
         , bgroup
               "replicate"
-              [ replicateAtSize (Proxy :: Proxy 60)
-              , replicateAtSize (Proxy :: Proxy 100)]
-        , env (create integer :: IO (Square 150 Int)) $
+              [ replicateAtSize (Proxy :: Proxy 600)
+              , replicateAtSize (Proxy :: Proxy 1000)]
+        , env (create integer :: IO (Square 1500 Int)) $
           \xs ->
                bgroup
                    "150"
@@ -68,7 +68,7 @@ main =
                                    (+)
                                    0
                                    [ x
-                                   | i <- [0 .. 149]
-                                   , j <- [0 .. 149]
+                                   | i <- [0 .. 1499]
+                                   , j <- [0 .. 1499]
                                    , Just x <- pure (s ! (i, j)) ])
                          xs]]

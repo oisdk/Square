@@ -87,8 +87,8 @@ type Traversal s a = ∀ f. Applicative f => (a -> f a) -> s -> f s
 
 data Square_ n v w a where
         Zero :: (forall b . Int -> Traversal (v b) b) -> v (v a) -> Square_ 'Z v w a
-        Even :: Square_ n v (Product w w) a -> Square_ ('O n) v w a
-        Odd :: Square_ n (Product v w) (Product w w) a -> Square_ ('I n) v w a
+        Even :: !(Square_ n v (Product w w) a) -> Square_ ('O n) v w a
+        Odd :: !(Square_ n (Product v w) (Product w w) a) -> Square_ ('I n) v w a
 
 --------------------------------------------------------------------------------
 -- Derivations
@@ -117,8 +117,8 @@ leP :: (Int -> Traversal (v a) a)
     -> (Int -> Traversal (w a) a)
     -> Int -> Int -> Traversal (Product v w a) a
 leP lev lew nv i f (Pair v w)
-  | i < nv    = flip Pair w <$> lev i f v
-  | otherwise = Pair v <$> lew (i-nv) f w
+  | i < nv = flip Pair w <$> lev i f v
+  | otherwise = Pair v <$> lew (i - nv) f w
 
 mkP
   :: Applicative f
@@ -137,6 +137,18 @@ class Create (n :: Binary)  where
         -> (forall b. f b -> f (w b))
         -> f a
         -> f c
+
+-- type Create_ n f a
+--     =  forall v w c.
+--        (Square_ n v w a -> c)
+--     -> (forall b. Int -> Traversal (v b) b)
+--     -> (forall b. Int -> Traversal (w b) b)
+--     -> Int
+--     -> Int
+--     -> (forall b d. (v b -> d) -> f b -> f d)
+--     -> (forall b. f b -> f (w b))
+--     -> f a
+--     -> f c
 
 instance Create 'Z where
     create_ k lev _ _ _ mkv _ = mkv (k . Zero lev) . mkv id
@@ -177,6 +189,7 @@ type Creatable n = Create (ToBinary n)
 create :: (Applicative f, Creatable n) => f a -> f (Square n a)
 create =
     create_ Square leE leI 0 1 (\k -> (const . pure) (k Proxy)) (fmap Identity)
+{-# INLINE create #-}
 
 --------------------------------------------------------------------------------
 -- Indexing
@@ -192,6 +205,7 @@ row i fs (Square s) = go Square fs s
     go k f (Zero lev vv) = fmap (k . Zero lev) ((lev i . traverse) f vv)
     go k f (Even x) = go (k . Even) f x
     go k f (Odd x) = go (k . Odd) f x
+{-# INLINE row #-}
 
 -- | @'col' n@ creates a traversal into the @n@th column of the square.
 col :: Int -> Traversal (Square n a) a
@@ -203,6 +217,7 @@ col i fs (Square s) = go Square fs s
     go k f (Zero lev vv) = fmap (k . Zero lev) ((traverse . lev i) f vv)
     go k f (Even x) = go (k . Even) f x
     go k f (Odd x) = go (k . Odd) f x
+{-# INLINE col #-}
 
 ix_ :: (Int, Int) -> Traversal (Square_ n v w a) a
 ix_ (i,j) (f :: a -> f a) = ix' id where
@@ -210,6 +225,7 @@ ix_ (i,j) (f :: a -> f a) = ix' id where
   ix' k (Zero lev vv) = (k . Zero lev) <$> (lev i . lev j) f vv
   ix' k (Even      m) = ix' (k . Even) m
   ix' k (Odd       m) = ix' (k . Odd) m
+{-# INLINE ix_ #-}
 
 -- | Traverse a given point in the square.
 alterF
@@ -222,10 +238,12 @@ alterF f (i,j) s@(Square q :: Square n a)
   | j >= n = pure s
   | otherwise = Square <$> ix_ (i,j) f q
   where n = fromInteger (natVal (Proxy :: Proxy n))
+{-# INLINE alterF #-}
 
 -- | Index into a given point in the square.
 (!) :: KnownNat n => Square n a -> (Int, Int) -> Maybe a
 s ! i = (getFirst #. getConst #. alterF (Const #. First #. Just) i) s
+{-# INLINE (!) #-}
 
 --------------------------------------------------------------------------------
 -- Eq, Ord and Show
@@ -348,6 +366,7 @@ viewInner (f :: forall f. Foldable f => f (f a) -> b) (Square xs) = go xs
     go (Zero _ vs) = f vs
     go (Even s) = go s
     go (Odd s) = go s
+{-# INLINE viewInner #-}
 
 -- |
 -- >>> fmap rows (fromList [1,2,3,4] :: Maybe (Square 2 Integer))
