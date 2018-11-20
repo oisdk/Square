@@ -1,0 +1,103 @@
+name:                Square
+version:             0.1.0.0
+github:              "oisdk/Square"
+license:             MIT
+author:              "Donnacha Oisín Kidney"
+maintainer:          "mail@doisinkidney.com"
+copyright:           "2018 Donnacha Oisín Kidney"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+synopsis:            Okasaki's purely functional square matrices
+category:            Data
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/Square#readme>
+
+dependencies:
+- base >= 4.11 && < 5
+- deepseq
+
+ghc-options:
+- -Wall
+- -fwarn-incomplete-record-updates
+- -fwarn-incomplete-uni-patterns
+- -fwarn-redundant-constraints
+- -Wcompat
+- -fno-warn-unticked-promoted-constructors
+
+default-extensions:
+- DeriveFoldable
+- DeriveFunctor
+- DeriveTraversable
+- TypeInType
+- DataKinds
+- TypeFamilies
+- TypeFamilyDependencies
+- BangPatterns
+- GADTs
+- LambdaCase
+- RankNTypes
+- TypeApplications
+- ConstraintKinds
+- TypeOperators
+- ScopedTypeVariables
+- ConstraintKinds
+- StandaloneDeriving
+- BlockArguments
+- DeriveGeneric
+- DeriveLift
+- DerivingVia
+- EmptyCase
+- UnicodeSyntax
+- MultiParamTypeClasses
+- FunctionalDependencies
+- GeneralisedNewtypeDeriving
+- KindSignatures
+- QuantifiedConstraints
+- ViewPatterns
+- PatternSynonyms
+- PolyKinds
+- NoStarIsType
+
+library:
+  source-dirs: src
+
+tests:
+  Square-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - Square
+    - hedgehog
+  Square-doctests:
+    main: doctests.hs
+    source-dirs: doctest
+    ghc-options:
+    - -threaded
+    dependencies:
+    - Square
+    - QuickCheck
+    - doctest
+
+benchmarks:
+  bench:
+    main: bench.hs
+    source-dirs: bench
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    dependencies:
+    - Square
+    - criterion
+    - random

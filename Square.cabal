@@ -1,44 +1,96 @@
-name:                Square
-version:             0.2.0.0
-synopsis:            Okasaki's Square matrices with nested types
-description:         Please see README.md
-homepage:            https://github.com/oisdk/Square#readme
-license:             MIT
-license-file:        LICENSE
-author:              Donnacha Oisin Kidney
-category:            Data
-build-type:          Simple
-cabal-version:       >=1.10
+-- This file has been generated from package.yaml by hpack version 0.28.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: b2d86a29dda4dca222f3f745068c1e2af474d7fa076440ff9bb518ba080110a4
+
+name:           Square
+version:        0.1.0.0
+synopsis:       Okasaki's purely functional square matrices
+description:    Please see the README on GitHub at <https://github.com/githubuser/Square#readme>
+category:       Data
+homepage:       https://github.com/oisdk/Square#readme
+bug-reports:    https://github.com/oisdk/Square/issues
+author:         Donnacha Oisín Kidney
+maintainer:     mail@doisinkidney.com
+copyright:      2018 Donnacha Oisín Kidney
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+extra-source-files:
+    ChangeLog.md
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/oisdk/Square
 
 library
-  hs-source-dirs:      src
-  exposed-modules:     Data.Square
-                     , Data.Square.Internal.Binary
-  default-language:    Haskell2010
-  build-depends:       base >= 4.9 && < 5
-                     , semiring-num >= 1.6
-                     , deepseq >= 1.4.3.0
-  ghc-options:         -Wall
+  exposed-modules:
+      Data.Coerce.Utils
+      Data.Sequence.RightPerfect
+      Data.Square
+      Data.Square.BinarySize
+      Numeric.Binary
+      Numeric.Peano
+  other-modules:
+      Paths_Square
+  hs-source-dirs:
+      src
+  default-extensions: DeriveFoldable DeriveFunctor DeriveTraversable TypeInType DataKinds TypeFamilies TypeFamilyDependencies BangPatterns GADTs LambdaCase RankNTypes TypeApplications ConstraintKinds TypeOperators ScopedTypeVariables ConstraintKinds StandaloneDeriving BlockArguments DeriveGeneric DeriveLift DerivingVia EmptyCase UnicodeSyntax MultiParamTypeClasses FunctionalDependencies GeneralisedNewtypeDeriving KindSignatures QuantifiedConstraints ViewPatterns PatternSynonyms PolyKinds NoStarIsType
+  ghc-options: -Wall -fwarn-incomplete-record-updates -fwarn-incomplete-uni-patterns -fwarn-redundant-constraints -Wcompat -fno-warn-unticked-promoted-constructors
+  build-depends:
+      base >=4.11 && <5
+    , deepseq
+  default-language: Haskell2010
 
-Test-Suite square-tests
-  Type:                exitcode-stdio-1.0
-  main-is:             test/square-tests.hs
-  build-depends:       base
-                     , doctest
-                     , QuickCheck >= 2.8
-                     , Square
-                     , semiring-num >= 0.6
-  default-language:    Haskell2010
+test-suite Square-doctests
+  type: exitcode-stdio-1.0
+  main-is: doctests.hs
+  other-modules:
+      Paths_Square
+  hs-source-dirs:
+      doctest
+  default-extensions: DeriveFoldable DeriveFunctor DeriveTraversable TypeInType DataKinds TypeFamilies TypeFamilyDependencies BangPatterns GADTs LambdaCase RankNTypes TypeApplications ConstraintKinds TypeOperators ScopedTypeVariables ConstraintKinds StandaloneDeriving BlockArguments DeriveGeneric DeriveLift DerivingVia EmptyCase UnicodeSyntax MultiParamTypeClasses FunctionalDependencies GeneralisedNewtypeDeriving KindSignatures QuantifiedConstraints ViewPatterns PatternSynonyms PolyKinds NoStarIsType
+  ghc-options: -Wall -fwarn-incomplete-record-updates -fwarn-incomplete-uni-patterns -fwarn-redundant-constraints -Wcompat -fno-warn-unticked-promoted-constructors -threaded
+  build-depends:
+      QuickCheck
+    , Square
+    , base >=4.11 && <5
+    , deepseq
+    , doctest
+  default-language: Haskell2010
+
+test-suite Square-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_Square
+  hs-source-dirs:
+      test
+  default-extensions: DeriveFoldable DeriveFunctor DeriveTraversable TypeInType DataKinds TypeFamilies TypeFamilyDependencies BangPatterns GADTs LambdaCase RankNTypes TypeApplications ConstraintKinds TypeOperators ScopedTypeVariables ConstraintKinds StandaloneDeriving BlockArguments DeriveGeneric DeriveLift DerivingVia EmptyCase UnicodeSyntax MultiParamTypeClasses FunctionalDependencies GeneralisedNewtypeDeriving KindSignatures QuantifiedConstraints ViewPatterns PatternSynonyms PolyKinds NoStarIsType
+  ghc-options: -Wall -fwarn-incomplete-record-updates -fwarn-incomplete-uni-patterns -fwarn-redundant-constraints -Wcompat -fno-warn-unticked-promoted-constructors -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Square
+    , base >=4.11 && <5
+    , deepseq
+    , hedgehog
+  default-language: Haskell2010
 
 benchmark bench
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      bench
-  main-is:             bench.hs
-  build-depends:       base
-                     , Square
-                     , criterion >=1.1
-                     , random >= 1.1
-                     , containers >= 0.5
-                     , semiring-num >= 0.6
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  default-language:    Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: bench.hs
+  other-modules:
+      Paths_Square
+  hs-source-dirs:
+      bench
+  default-extensions: DeriveFoldable DeriveFunctor DeriveTraversable TypeInType DataKinds TypeFamilies TypeFamilyDependencies BangPatterns GADTs LambdaCase RankNTypes TypeApplications ConstraintKinds TypeOperators ScopedTypeVariables ConstraintKinds StandaloneDeriving BlockArguments DeriveGeneric DeriveLift DerivingVia EmptyCase UnicodeSyntax MultiParamTypeClasses FunctionalDependencies GeneralisedNewtypeDeriving KindSignatures QuantifiedConstraints ViewPatterns PatternSynonyms PolyKinds NoStarIsType
+  ghc-options: -Wall -fwarn-incomplete-record-updates -fwarn-incomplete-uni-patterns -fwarn-redundant-constraints -Wcompat -fno-warn-unticked-promoted-constructors -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+      Square
+    , base >=4.11 && <5
+    , criterion
+    , deepseq
+    , random
+  default-language: Haskell2010

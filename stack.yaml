@@ -1,8 +1,4 @@
-flags: {}
-extra-package-dbs: []
+resolver: nightly-2018-11-19
+
 packages:
-- '.'
-extra-deps:
-- semiring-num-1.6.0.1
-- deepseq-1.4.3.0
-resolver: lts-9.6
+- .
